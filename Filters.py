@@ -316,7 +316,6 @@ class Keep_N_Objects(A_Filter):
         self.output_path_and_image.image.CopyInformation(self.input_path_and_image.image)
         print sorted_selec_labels
         for l in sorted_selec_labels:
-            print l
             masked = self.input_path_and_image.image == l if type_im == SimpleITK.sitkUInt8 else SimpleITK.Cast(self.input_path_and_image.image == l, SimpleITK.sitkUInt16)
             self.output_path_and_image.image += masked*l
             

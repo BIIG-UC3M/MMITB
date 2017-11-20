@@ -14,7 +14,8 @@ import os
 
 import glob
 
-from Filters import SRM
+from Filters import SRM, Keep_N_Objects
+from UsefullFunctions import AttrDict
 
 
 
@@ -62,6 +63,31 @@ def srm(itk_image, q = 25, three_dim = True, averages = False ):
     srm_itk_image.CopyInformation(itk_image)
     return srm_itk_image
 
+def get_background(itk_image, q = 15):
+    temp_image_path_output = os.path.join(tempfile.gettempdir(),str(time.time())+'.mhd')
+    prob_bck = srm(itk_image, q=q) 
+    connected_bck = SimpleITK.ConnectedComponent(prob_bck == 0)
+    keep_bck = Keep_N_Objects(n_objects=1,save_img=(temp_image_path_output, False))
+    keep_bck.execute(connected_bck)
+    return keep_bck.output_path_and_image.image
+
+def get_bck_images(itk_images_list, fixed_itk_image_indx = 0):
+    fixed_itk_img = itk_images_list[fixed_itk_image_indx]
+    fixed_itk_img = fixed_itk_img if isinstance(fixed_itk_img, SimpleITK.Image) else read_dicom(fixed_itk_img)
+    img_out = SimpleITK.Image(fixed_itk_img.GetSize(), SimpleITK.sitkUInt8)+1
+    img_out.CopyInformation(fixed_itk_img)
+    for i,img in enumerate(itk_images_list):
+        img_obj = img if isinstance(img, SimpleITK.Image) else read_dicom(img)
+        img_bck = get_background(img_obj)
+        img_bck = resamplig(fixed_itk_img, img_bck, interpolator=SimpleITK.sitkNearestNeighbor) if i != fixed_itk_image_indx else img_bck
+        print '/tmp/img_bck_'+img.split('/')[-1]+'.mhd'
+        img_out += img_bck
+        SimpleITK.WriteImage(img_bck , '/tmp/img_bck_'+img.split('/')[-1]+'.mhd')
+    SimpleITK.WriteImage(img_out, '/tmp/img_bck_out_pre.mhd')
+    SimpleITK.WriteImage(img_out > (len(itk_images_list)+1) / 2, '/tmp/img_bck_out.mhd')
+    
+    
+
 def test_label_bck():
     folders = glob.glob('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB7*/*/')
     for i, folder in enumerate(folders):
@@ -79,7 +105,22 @@ def test_label_bck():
                 SimpleITK.WriteImage(t1_im, os.path.join('/tmp/t1'+study+'.mhd'))
                 SimpleITK.WriteImage(resamplig(t1_im, mask, interpolator=SimpleITK.sitkNearestNeighbor),  os.path.join('/tmp/resam'+study+'.mhd')) 
 
-    
+
+class Region():
+    SIZE = 'Physical Size'
+    MEAN = 'Mean'
+    def __init__(self, mask_itk, label, stats_filter = None):
+        self.mask_itk = mask_itk
+        self.label = label
+        self.cluster = np.nan #Not assigned or regressed at the begining
+        self.stats_filter = stats_filter if stats_filter != None else SimpleITK.LabelIntensityStatisticsImageFilter()
+        self.FEATS = AttrDict({REGION.SIZE:stats_filter.GetPhysicalSize,
+                      REGION.MEAN:stats_filter.GetMean})
+        
+        
+    def set_feat(self, feature = SIZE):
+        if self.stats_filter.GetProgress() == 0.0:
+            sel
         
 
 if __name__ == "__main__":
@@ -93,6 +134,9 @@ if __name__ == "__main__":
 #    SimpleITK.WriteImage(resamplig(pt,t1_seg, interpolator=SimpleITK.sitkNearestNeighbor), '/tmp/labels_to_pet_NN.mhd')
 #    pt = SimpleITK.Cast(pt, SimpleITK.sitkFloat32)
 #    SimpleITK.WriteImage(pt,'/tmp/pt.mhd')
-    test_label_bck()
+    #test_label_bck()
+    images = glob.glob('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB7*/*/'+'/*/*t1*')
+    #for im in images:
+        #get_background(read_dicom(im))
     
     
