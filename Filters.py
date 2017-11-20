@@ -17,6 +17,7 @@ import numpy as np
 import SimpleITK 
 
 from Segmentation import A_Filter, FILTER_TYPE, UTILITIES_DIR, External_Filter, Simple_ITK_Filter,  Fiji_Filter
+from UsefullFunctions import AttrDict
 
 
 class Apply_Median(External_Filter):
@@ -261,6 +262,70 @@ class Erode(Simple_ITK_Filter):
         self.simple_itk_filter.SetKernelType(self.kernel)
     def set_params(self):
         self.params = [self.backgorund, self.foregorund, self.boundary_foreground]
+        
+class Keep_N_Objects(A_Filter):
+    """
+    Input should be a label image
+    order 0 for descending order
+    works fine up to 2^16 labels
+    """
+    SIZE = 'Physical Size'
+    FERET_DIAMETER = 'Feret Diameter'
+    PERIMETER = 'Perimeter'
+    ELONGATION = 'Elongation'
+    SPHERICAL_DIAMETER = 'Spherical Diameter' 
+    SPHERICAL_RADIUS = 'Spherical Radius'
+    FLATNESS = 'Flatness'
+    PIXELS = 'Number of Pixels'
+    PIXELS_ON_BORDER = 'Number of pixels on border'
+    PERIMETER_ON_BORDER = 'Perimeter on border'
+    PERIMETER_ON_BORDER_RATIO = 'Perimeter on border ratio'
+    ROUNDNESS = 'Roundness'
+    
+    
+    def __init__(self, n_objects = 3, feature = SIZE, order = 0, bck_val = 0, save_img =(None,True) ):
+        A_Filter.__init__(self, 'Keep-Objects', FILTER_TYPE.OTHERS, built_in=True, save_img=save_img)
+        self.n_objects = n_objects
+        self.feature = feature
+        self.order = order
+        self.bck_val = bck_val
+        
+    def execute(self,inputimage, output = None):
+        self.to_interface(inputimage)
+        shape_stats = SimpleITK.LabelShapeStatisticsImageFilter()
+        FEATS = {Keep_N_Objects.SIZE:shape_stats.GetPhysicalSize,
+                 Keep_N_Objects.ELONGATION:shape_stats.GetElongation,
+                 Keep_N_Objects.SPHERICAL_DIAMETER:shape_stats.GetEquivalentSphericalPerimeter,
+                 Keep_N_Objects.SPHERICAL_RADIUS:shape_stats.GetEquivalentSphericalRadius,
+                 Keep_N_Objects.FERET_DIAMETER:shape_stats.GetFeretDiameter,
+                 Keep_N_Objects.FLATNESS:shape_stats.GetFlatness, 
+                 Keep_N_Objects.PIXELS:shape_stats.GetNumberOfPixels, 
+                 Keep_N_Objects.PIXELS_ON_BORDER:shape_stats.GetNumberOfPixelsOnBorder,
+                 Keep_N_Objects.PERIMETER:shape_stats.GetPerimeter, 
+                 Keep_N_Objects.PERIMETER_ON_BORDER:shape_stats.GetPerimeterOnBorder,
+                 Keep_N_Objects.PERIMETER_ON_BORDER_RATIO:shape_stats.GetPerimeterOnBorderRatio,
+                 Keep_N_Objects.ROUNDNESS:shape_stats.GetRoundness}
+        shape_stats.Execute(self.input_path_and_image.image, self.bck_val,
+                            self.feature == Keep_N_Objects.FERET_DIAMETER, self.feature == Keep_N_Objects.PERIMETER)
+        measures = np.array([FEATS[self.feature](l) for l in shape_stats.GetLabels() ])
+        sorted_selec_labels =  np.array(shape_stats.GetLabels())[measures.argsort()[:self.n_objects]] if self.order != 0 else np.array(shape_stats.GetLabels())[measures.argsort()[-self.n_objects:]]
+        
+        type_im = SimpleITK.sitkUInt8 if np.max(sorted_selec_labels)/256 < 1 else SimpleITK.sitkUInt16
+        print type_im
+        self.output_path_and_image.image = SimpleITK.Image(self.input_path_and_image.image.GetSize(),type_im)
+        self.output_path_and_image.image.CopyInformation(self.input_path_and_image.image)
+        print sorted_selec_labels
+        for l in sorted_selec_labels:
+            print l
+            masked = self.input_path_and_image.image == l if type_im == SimpleITK.sitkUInt8 else SimpleITK.Cast(self.input_path_and_image.image == l, SimpleITK.sitkUInt16)
+            self.output_path_and_image.image += masked*l
+            
+        self.output_path_and_image.path = self.output_path_and_image.path if output is None else output
+        SimpleITK.WriteImage(self.output_path_and_image.image,self.output_path_and_image.path)
+         
+        return self
+    
+        
        
 
 class Hu_Threshold(A_Filter):

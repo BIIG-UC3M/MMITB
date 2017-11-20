@@ -145,6 +145,11 @@ def hdr_to_mhd(pathimages):
         pathfinal=os.path.join(os.path.abspath(os.path.join(i, os.pardir)),os.path.basename(os.path.normpath(i)).split('.')[0]+'.mhd')
         SimpleITK.WriteImage(image,pathfinal)
         
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
+        
 
 if __name__ == "__main__":
     print 'Functions'

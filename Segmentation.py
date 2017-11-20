@@ -145,12 +145,13 @@ class Fiji_Filter(A_Filter):
     def execute(self, a_filter, output = None): #Input and Output can be just paths
         """
         a_filter and image or another filter
+        This version will close all Fiji instances
         """
         self.input_path_and_image.path = a_filter.output_path_and_image.path if isinstance(a_filter,A_Filter) else a_filter
         self.output_path_and_image.path = self.output_path_and_image.path if output is None else output
         self.set_params()
         self.check_params()
-        calling_external('pkill',[ '-f', 'ImageJ*'])
+        calling_external('pkill',[ '-f', 'ImageJ-lin*'])
         calling_external(self.path, ['--ij2', '--headless', '--run', ]+self.params)
         return self
         
