@@ -20,6 +20,14 @@ from UsefullFunctions import AttrDict
 
 
 
+def read_image(image):
+    """
+    image could be a itk_image object, a path to a image or a path to a DICOM folder
+    """
+    if isinstance(image, SimpleITK.Image):
+        return image
+    return read_dicom(image) if os.path.isdir(image) else SimpleITK.ReadImage(image)
+    
 
 def itkImageToSLIC(itk_image, n_seg = 1000, compactness = 0.0001, return_itk_image = True):
     """
@@ -53,22 +61,53 @@ def resamplig(fix_image, to_resample_image, interpolator = SimpleITK.sitkBSpline
     resample.SetInterpolator(interpolator)
     return resample.Execute(to_resample_image)
 
-def srm(itk_image, q = 25, three_dim = True, averages = False ):
+def srm(itk_image, q = 25, three_dim = True, averages = False, fully_connected = True, smooth = None ):
     temp_image_path_input = os.path.join(tempfile.gettempdir(),str(time.time())+'.mhd')
+    if smooth is not None:
+        itk_image = SimpleITK.Median(itk_image, smooth)
+        
     SimpleITK.WriteImage(itk_image, temp_image_path_input)
     temp_image_path_output = os.path.join(tempfile.gettempdir(),str(time.time())+'.mhd')
     srm = SRM(save_img=(temp_image_path_output, False),q=q)
     srm.execute(temp_image_path_input)
     srm_itk_image = SimpleITK.ReadImage(temp_image_path_output)
     srm_itk_image.CopyInformation(itk_image)
-    return srm_itk_image
+    
+    if fully_connected:
+        return srm_itk_image
+    
+    img_out = SimpleITK.Image(srm_itk_image.GetSize(), SimpleITK.sitkUInt32)
+    img_out.CopyInformation(srm_itk_image)
+    SimpleITK.WriteImage(img_out,"/tmp/imou.mhd")
+    fake_labelling = SimpleITK.LabelShapeStatisticsImageFilter()
+    fake_labelling.Execute(srm_itk_image)
+    max_offset = 0
+    for l in fake_labelling.GetLabels():
+        partial_img = SimpleITK.Cast(SimpleITK.ConnectedComponent(srm_itk_image == l, fullyConnected=True), SimpleITK.sitkUInt32) 
+        stupid_filter = SimpleITK.MinimumMaximumImageFilter()
+        stupid_filter.Execute(partial_img)
+        maxi = int(stupid_filter.GetMaximum())
+        img_out += (partial_img  + max_offset)*partial_img
+        if l % 500 == 0:
+            SimpleITK.WriteImage(partial_img, "/tmp/partial_"+str(l)+".mhd")
+            SimpleITK.WriteImage(img_out, "/tmp/partial_out_"+str(l)+".mhd")
+        max_offset += maxi
+        print maxi,max_offset, fake_labelling.GetNumberOfLabels()
+    
+    return img_out
+        
+    
+    
+
 
 def get_background(itk_image, q = 15):
     temp_image_path_output = os.path.join(tempfile.gettempdir(),str(time.time())+'.mhd')
     prob_bck = srm(itk_image, q=q) 
-    connected_bck = SimpleITK.ConnectedComponent(prob_bck == 0)
+    connected_bck = SimpleITK.ConnectedComponent(prob_bck == 0, fullyConnected=True)
+    SimpleITK.WriteImage(connected_bck,'/tmp/conn.mhd')
     keep_bck = Keep_N_Objects(n_objects=1,save_img=(temp_image_path_output, False))
     keep_bck.execute(connected_bck)
+    SimpleITK.WriteImage(keep_bck.output_path_and_image.image,'/tmp/connObje.mhd')
     return keep_bck.output_path_and_image.image
 
 def get_bck_images(itk_images_list, fixed_itk_image_indx = 0):
@@ -101,27 +140,12 @@ def test_label_bck():
                 study = image.split('/')[-2]
                 image_im = read_dicom(image)
                 mask = image_im==0
-                SimpleITK.WriteImage(mask, os.path.join('/tmp/'+study+'.mhd'))
+                SimpleITK.WriteImage(mask, os.path.join('/tmp/mask'+study+'.mhd'))
                 SimpleITK.WriteImage(t1_im, os.path.join('/tmp/t1'+study+'.mhd'))
                 SimpleITK.WriteImage(resamplig(t1_im, mask, interpolator=SimpleITK.sitkNearestNeighbor),  os.path.join('/tmp/resam'+study+'.mhd')) 
 
 
-class Region():
-    SIZE = 'Physical Size'
-    MEAN = 'Mean'
-    def __init__(self, mask_itk, label, stats_filter = None):
-        self.mask_itk = mask_itk
-        self.label = label
-        self.cluster = np.nan #Not assigned or regressed at the begining
-        self.stats_filter = stats_filter if stats_filter != None else SimpleITK.LabelIntensityStatisticsImageFilter()
-        self.FEATS = AttrDict({REGION.SIZE:stats_filter.GetPhysicalSize,
-                      REGION.MEAN:stats_filter.GetMean})
-        
-        
-    def set_feat(self, feature = SIZE):
-        if self.stats_filter.GetProgress() == 0.0:
-            sel
-        
+
 
 if __name__ == "__main__":
 #    t1_fat_sup_dcm = '/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131121/102152_812000/t1_vibe_tra_bh_fatsat_exsp_0037'
@@ -134,9 +158,20 @@ if __name__ == "__main__":
 #    SimpleITK.WriteImage(resamplig(pt,t1_seg, interpolator=SimpleITK.sitkNearestNeighbor), '/tmp/labels_to_pet_NN.mhd')
 #    pt = SimpleITK.Cast(pt, SimpleITK.sitkFloat32)
 #    SimpleITK.WriteImage(pt,'/tmp/pt.mhd')
-    #test_label_bck()
-    images = glob.glob('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB7*/*/'+'/*/*t1*')
+#    test_label_bck()
+#    images = glob.glob('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB7*/*/'+'/*/*t1*')
     #for im in images:
         #get_background(read_dicom(im))
+        
+    t1 = read_dicom('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034')
+    iverted_mask = SimpleITK.InvertIntensity(get_background(t1, q=25), maximum=1 )
+    SimpleITK.WriteImage(iverted_mask, '/tmp/inverted_mask.mhd')
+    no_bck_image = SimpleITK.Mask(t1,iverted_mask  )
+    #t1_eg_discc = srm(no_bck_image, q=200 ,fully_connected=False, smooth=True)
+    #SimpleITK.WriteImage(t1_eg_discc, '/tmp/t1_seg_dis.mhd')
+    itk_slic_img = SimpleITK.Median(itkImageToSLIC(no_bck_image), [1,1,1])
+    SimpleITK.WriteImage(itk_slic_img, '/tmp/itkslicMedian.mhd')
+    SimpleITK.WriteImage(SimpleITK.Mask(itk_slic_img, iverted_mask), '/tmp/itkslicMedian_no_bck.mhd')
+    SimpleITK.WriteImage( SimpleITK.Mask( itkImageToSLIC(srm(no_bck_image, q=25, smooth= [1,1,1])),iverted_mask ), '/tmp/slic_srm.mhd')
     
     
