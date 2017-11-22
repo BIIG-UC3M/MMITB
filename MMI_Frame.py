@@ -5,23 +5,23 @@ Created on Tue Nov 21 12:06:52 2017
 
 @author: pmacias
 """
-
 from utilities import read_image, resamplig
 import SimpleITK
 import pandas as pd
+import numpy as np
 
 class Region():
-    SIZE = 'Physical Size'
-    FERET_DIAMETER = 'Feret Diameter'
+    SIZE = 'Physical_Size'
+    FERET_DIAMETER = 'Feret_Diameter'
     PERIMETER = 'Perimeter'
     ELONGATION = 'Elongation'
-    SPHERICAL_DIAMETER = 'Spherical Diameter' 
-    SPHERICAL_RADIUS = 'Spherical Radius'
+    SPHERICAL_DIAMETER = 'Spherical_Diameter' 
+    SPHERICAL_RADIUS = 'Spherical_Radius'
     FLATNESS = 'Flatness'
-    PIXELS = 'Number of Pixels'
-    PIXELS_ON_BORDER = 'Number of pixels on border'
-    PERIMETER_ON_BORDER = 'Perimeter on border'
-    PERIMETER_ON_BORDER_RATIO = 'Perimeter on border ratio'
+    PIXELS = 'Number_of_Pixels'
+    PIXELS_ON_BORDER = 'Number_of_pixels_on_border'
+    PERIMETER_ON_BORDER = 'Perimeter_on_border'
+    PERIMETER_ON_BORDER_RATIO = 'Perimeter_on_border_ratio'
     ROUNDNESS = 'Roundness'
     MEAN = 'Mean'
     def __init__(self, mask_itk, label):
@@ -116,9 +116,13 @@ class ModalityImage():
             return None
         self.itk_image = read_image(image_path_or_object)
         
+    def resample_image_to_modality(self, image_to_resample, interpolator = SimpleITK.sitkNearestNeighbor):
+        return resamplig(self.itk_image, image_to_resample, interpolator= interpolator)
+        
+        
     def get_features(self, labels_mask, features = [Region.MEAN]):
-        resample_labels = resamplig(self.itk_image, labels_mask, interpolator=SimpleITK.sitkNearestNeighbor)
-        SimpleITK.WriteImage(resample_labels, '/tmp/resampled_labels.mhd')
+        resample_labels = self.resample_image_to_modality(labels_mask)
+        SimpleITK.WriteImage(resample_labels, '/tmp/resampled_labels'+ModalityImage.short_id[self.image_modality]+'.mhd')
         stats_filter = SimpleITK.LabelIntensityStatisticsImageFilter()
         FEATS = {Region.SIZE:stats_filter.GetPhysicalSize,
                  Region.ELONGATION:stats_filter.GetElongation,
@@ -135,7 +139,9 @@ class ModalityImage():
                  Region.MEAN:stats_filter.GetMean}
         stats_filter.Execute( resample_labels,self.itk_image)
         print stats_filter.GetNumberOfLabels()
-        d = [{'Label':label, self.short_id[self.image_modality]+'_'+feat: FEATS[feat](label)} for feat in features  for label in stats_filter.GetLabels()]
+        d = {}
+        for feat in features:
+            d[self.short_id[self.image_modality]+'_'+feat]=pd.Series([FEATS[feat](label) for label in stats_filter.GetLabels()], index = stats_filter.GetLabels())
         return pd.DataFrame(d)
     
 
@@ -145,7 +151,70 @@ class MultiModalityImage():
         modalities_imgs: List of ModalityImage
         labels_mask_image: itk image used to set Regions
         """
-        self.modalities_imgs = modalities_imgs
-        self.label_mask_image = read_image(labels_mask_image)
-        #self.regions = 
+        self.modalities_imgs = []
+        self.label_mask_image = None
+        self.multimodality_feats = None
+        self.cluster_map = {}
+        
+        
+        self.add_modality_images(modalities_imgs)
+        self.set_label_mask(labels_mask_image)
+        
+        
+    def set_regions_feats(self, features = [Region.MEAN]):
+        self.multimodality_feats = pd.concat([ modality_img.get_features(self.label_mask_image,features) for modality_img in self.modalities_imgs] , axis=1)
+        
+        
+    def add_modality_image(self, modality_img):
+        if  isinstance(modality_img,ModalityImage):
+            self.modalities_imgs += [modality_img]
+        elif isinstance(modality_img,dict):
+            for k in modality_img.keys():
+                self.add_modality_image(ModalityImage(k, modality_img[k]))
+        else:
+            print ('Incorrect modality image argument. Must be a ModalityImage object or dict({modality:image})')
+            
+    def add_modality_images(self, modality_images):
+        if isinstance(modality_images, list):
+            for modality in modality_images:
+                self.add_modality_image(modality)
+        elif isinstance(modality_images, dict):
+            for k in modality_images.keys():
+                self.add_modality_image({k:modality_images[k]})
+        else:
+            print ('Iconrrect list or dictionary of modality images')
+            
+    def set_label_mask(self, labels_mask_image):
+        self.label_mask_image = read_image(labels_mask_image) if labels_mask_image is not None else None
+        
+    def get_modality_image_by_id(self, modality_id):
+        try:
+            return self.modalities_imgs[  [modality.image_modality for modality in self.modalities_imgs].index(modality_id) ]
+        except ValueError:
+            print ('Incorrect modality_id '+modality_id)
+            return  None
+        
+    def get_cluster_map(self, modality_image_id, region_cluster_dict):
+        """
+        region_cluster_dict. key must be the region and value the cluster
+        TODO: correspondance betwwe labes in label_mask_image and region_cluster_dict
+        """
+        clusters = region_cluster_dict.values()
+        data_type = SimpleITK.sitkUInt8 if np.max(clusters) < 256 else SimpleITK.sitkUInt16
+        img_out = SimpleITK.Image(self.label_mask_image.GetSize(), data_type)
+        img_out.CopyInformation(self.label_mask_image)
+        for k in region_cluster_dict.keys():
+            img_out += SimpleITK.Cast((self.label_mask_image == k) * region_cluster_dict[k],data_type)
+        return self.get_modality_image_by_id(modality_image_id).resample_image_to_modality(img_out)
+        
+if __name__ == "__main__":
+    im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
+    mm = MultiModalityImage(im_d, labels_mask_image='/tmp/slic_srm.mhd')
+    mm.add_modality_images({ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019',
+                           ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
+    shitiert  = mm.set_regions_feats()
+        
+    
+            
+        
 
