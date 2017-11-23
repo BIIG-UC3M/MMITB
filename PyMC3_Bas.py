@@ -76,8 +76,6 @@ def ass_cluster(i):
     return np.argmax(np.bincount(tr['category'][:,i]))
 
 
-
-
 cluster_posterior(i)
 
 
