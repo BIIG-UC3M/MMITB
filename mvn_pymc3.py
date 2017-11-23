@@ -56,42 +56,42 @@ if __name__ == "__main__":
 
 
     #Model original
-#    with pm.Model() as model:
-#        mus = [MvNormal('mu_%d' % i,
-#                        mu=pm.floatX(np.zeros(2)),
-#                        tau=pm.floatX(0.1 * np.eye(2)),
-#                        shape=(2,))
-#               for i in range(2)]
-#        pi = Dirichlet('pi', a=pm.floatX(0.1 * np.ones(2)), shape=(2,))
-#        
-#        xs = DensityDist('x', logp_gmix(mus, pi, np.eye(2)), observed=data)
-        
-   
-    #Model for GMM clustering
     with pm.Model() as model:
-        # cluster sizes
-        p = pm.Dirichlet('p', a=np.array([1., 1.]), shape=2)
-        # ensure all clusters have some points
-        p_min_potential = pm.Potential('p_min_potential', tt.switch(tt.min(p) < .1, -np.inf, 0))
-    
-    
-        # cluster centers
-        means = [MvNormal('mu_%d' % i,mu=pm.floatX(np.zeros(2)),tau=pm.floatX(0.1 * np.eye(2)),shape=(2,))
+        mus = [MvNormal('mu_%d' % i,
+                        mu=pm.floatX(np.zeros(2)),
+                        tau=pm.floatX(0.1 * np.eye(2)),
+                        shape=(2,))
                for i in range(2)]
-        # break symmetry
-        order_means_potential = pm.Potential('order_means_potential',tt.switch(means[1]-means[0] < 0, -np.inf, 0))
-    
-        # measurement error
-        sd = pm.Uniform('sd', lower=0, upper=20)
-    
-        # latent cluster of each observation
-        category = pm.Categorical('category',p=p,shape=data.shape[0])
-    
-        # likelihood for each observed value
-        points = pm.Normal('obs',
-                           mu=means[category],
-                           sd=sd,
-                           observed=data)
+        pi = Dirichlet('pi', a=pm.floatX(0.1 * np.ones(2)), shape=(2,))
+        
+        xs = DensityDist('x', logp_gmix(mus, pi, np.eye(2)), observed=data)
+        
+#   
+#    #Model for GMM clustering
+#    with pm.Model() as model:
+#        # cluster sizes
+#        p = pm.Dirichlet('p', a=np.array([1., 1.]), shape=2)
+#        # ensure all clusters have some points
+#        p_min_potential = pm.Potential('p_min_potential', tt.switch(tt.min(p) < .1, -np.inf, 0))
+#    
+#    
+#        # cluster centers
+#        means = [MvNormal('mu_%d' % i,mu=pm.floatX(np.zeros(2)),tau=pm.floatX(0.1 * np.eye(2)),shape=(2,))
+#               for i in range(2)]
+#        # break symmetry
+#        order_means_potential = pm.Potential('order_means_potential',tt.switch(means[1]-means[0] < 0, -np.inf, 0))
+#    
+#        # measurement error
+#        sd = pm.Uniform('sd', lower=0, upper=20)
+#    
+#        # latent cluster of each observation
+#        category = pm.Categorical('category',p=p,shape=data.shape[0])
+#    
+#        # likelihood for each observed value
+#        points = pm.Normal('obs',
+#                           mu=means[category],
+#                           sd=sd,
+#                           observed=data)
     
     
     
