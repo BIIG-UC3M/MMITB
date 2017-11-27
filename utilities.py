@@ -169,9 +169,10 @@ if __name__ == "__main__":
     no_bck_image = SimpleITK.Mask(t1,iverted_mask  )
     #t1_eg_discc = srm(no_bck_image, q=200 ,fully_connected=False, smooth=True)
     #SimpleITK.WriteImage(t1_eg_discc, '/tmp/t1_seg_dis.mhd')
-    itk_slic_img = SimpleITK.Median(itkImageToSLIC(no_bck_image), [1,1,1])
-    SimpleITK.WriteImage(itk_slic_img, '/tmp/itkslicMedian.mhd')
-    SimpleITK.WriteImage(SimpleITK.Mask(itk_slic_img, iverted_mask), '/tmp/itkslicMedian_no_bck.mhd')
-    SimpleITK.WriteImage( SimpleITK.Mask( itkImageToSLIC(srm(no_bck_image, q=25, smooth= [1,1,1])),iverted_mask ), '/tmp/slic_srm.mhd')
+    #itk_slic_img = SimpleITK.Median(itkImageToSLIC(no_bck_image, n_seg=50000, compactness = 0.00001), [1,1,1])
+    #SimpleITK.WriteImage(itk_slic_img, '/tmp/itkslicMedian.mhd')
+    #SimpleITK.WriteImage(SimpleITK.Mask(itk_slic_img, iverted_mask), '/tmp/itkslicMedian_no_bck.mhd')
+    SimpleITK.WriteImage( SimpleITK.Mask( itkImageToSLIC(srm(no_bck_image, q=50, smooth= [1,1,1]), n_seg=500, compactness=0.001 ),iverted_mask ), '/tmp/slic_srm3.mhd')
+    #SimpleITK.WriteImage( SimpleITK.Mask( srm(no_bck_image, q=1600, smooth= [1,1,1]),iverted_mask ), '/tmp/slic_srm3.mhd')
     
     

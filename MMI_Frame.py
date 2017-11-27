@@ -9,6 +9,8 @@ from utilities import read_image, resamplig
 import SimpleITK
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import RobustScaler,StandardScaler
+
 
 class Region():
     SIZE = 'Physical_Size'
@@ -24,6 +26,9 @@ class Region():
     PERIMETER_ON_BORDER_RATIO = 'Perimeter_on_border_ratio'
     ROUNDNESS = 'Roundness'
     MEAN = 'Mean'
+    MIN = 'Minimum'
+    MAX = 'Maximum'
+    MEDIAN = 'Median'
     def __init__(self, mask_itk, label):
         self.mask_itk = mask_itk
         self.label = label
@@ -136,7 +141,10 @@ class ModalityImage():
                  Region.PERIMETER_ON_BORDER:stats_filter.GetPerimeterOnBorder,
                  Region.PERIMETER_ON_BORDER_RATIO:stats_filter.GetPerimeterOnBorderRatio,
                  Region.ROUNDNESS:stats_filter.GetRoundness,
-                 Region.MEAN:stats_filter.GetMean}
+                 Region.MEAN:stats_filter.GetMean, 
+                 Region.MIN:stats_filter.GetMinimum,
+                 Region.MAX:stats_filter.GetMaximum,
+                 Region.MEDIAN:stats_filter.GetMedian}
         stats_filter.Execute( resample_labels,self.itk_image)
         print stats_filter.GetNumberOfLabels()
         d = {}
@@ -206,13 +214,61 @@ class MultiModalityImage():
         for k in region_cluster_dict.keys():
             img_out += SimpleITK.Cast((self.label_mask_image == k) * region_cluster_dict[k],data_type)
         return self.get_modality_image_by_id(modality_image_id).resample_image_to_modality(img_out)
-        
+
+from sklearn import mixture
+def mixture_map(multimodality_image, mix = 0, clusters = 2):
+    if not isinstance(multimodality_image, MultiModalityImage):
+        print ("Iconrrecto multimodality image onject")
+        return None
+    GMM = 'GMM'
+    BMM = 'BMM'
+    mixture_fun = mixture.GaussianMixture if mix == 0 else mixture.BayesianGaussianMixture
+    mixture_string = GMM if mix == 0 else BMM
+    
+    mixture_fun = mixture_fun(n_components = clusters, covariance_type = 'full')
+    #multimodality_image.set_regions_feats()
+    clean_feats = multimodality_image.multimodality_feats.dropna()
+    #X = StandardScaler().fit_transform(clean_feats)
+    mixture_fun.fit(clean_feats)
+    y = mixture_fun.predict(clean_feats)
+    f = {clean_feats.index.values[i]:y[i]+1 for i in range(len(y))}
+    SimpleITK.WriteImage(multimodality_image.get_cluster_map(ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT, f),
+                         '/tmp/map_'+'imgs_'+str(len(multimodality_image.modalities_imgs))+'_'+mixture_string+'_'+str(clusters)+'.mhd')
+    return mixture_fun.bic(clean_feats) if mixture_string == GMM else None
+    
+    
+       
 if __name__ == "__main__":
     im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
-    mm = MultiModalityImage(im_d, labels_mask_image='/tmp/slic_srm.mhd')
-    mm.add_modality_images({ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019',
-                           ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
-    shitiert  = mm.set_regions_feats()
+    mm = MultiModalityImage(im_d, labels_mask_image='/tmp/slic_srm3.mhd')
+    mm.set_regions_feats()
+    print('Using Contrast t1')
+    for i in range(2,30):
+        print i
+        print i,mixture_map(mm, clusters=i)
+        print i,mixture_map(mm, clusters=i, mix = 1),'Bayes'
+    
+    mm.add_modality_images({ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
+    mm.set_regions_feats()
+    print('Using PET')
+    for i in range(2,30):
+        print i,mixture_map(mm, clusters=i)
+        print i,mixture_map(mm, clusters=i, mix = 1),'Bayes'
+        
+    mm.add_modality_images({ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019'})   
+    mm.set_regions_feats()
+    for i in range(2,30):
+        print('Using PreContrast T1')
+        print mixture_map(mm, clusters=i)        
+        
+    mm.add_modality_images({ModalityImage.THO_T2_SPC_COR_PACE:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_t2_spc_cor_pace_0014'})   
+    mm.set_regions_feats()
+    print('Using T2')
+    for i in range(2,30):
+        print i,mixture_map(mm, clusters=i) 
+        print i,mixture_map(mm, clusters=i, mix = 1),'Bayes'
+         
+
         
     
             
