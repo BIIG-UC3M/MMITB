@@ -236,7 +236,7 @@ def mixture_map(multimodality_image, mix = 0, clusters = 2, wei_prior = None):
     y = mixture_fun.predict(clean_feats)
     f = {clean_feats.index.values[i]:y[i]+1 for i in range(len(y))}
     SimpleITK.WriteImage(multimodality_image.get_cluster_map(ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT, f),
-                         '/tmp/map_'+'imgs_'+str(len(multimodality_image.modalities_imgs))+'_'+mixture_string+'_'+str(clusters)+'_prior_'+str(wei_prior)+'.mhd')
+                         '/tmp/map_'+'imgs_pt_t1_'+str(len(multimodality_image.modalities_imgs))+'_'+mixture_string+'_'+str(clusters)+'_prior_'+str(wei_prior)+'.mhd')
     return mixture_fun.bic(clean_feats) if mixture_string == GMM else 'covergencia '+str(mixture_fun.converged_)+ ' iter '+ str(mixture_fun.n_iter_)+ ' lower_bound '+str( mixture_fun.lower_bound_)
     
     

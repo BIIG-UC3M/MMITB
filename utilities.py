@@ -199,6 +199,9 @@ if __name__ == "__main__":
     srm_smothed_image = srm(no_bck_image, q=50, smooth=[1,1,1])
     SimpleITK.WriteImage(SimpleITK.Mask(itkImageToSLIC( SimpleITK.Median(no_bck_image,[1,1,1]), n_seg=2000 ),iverted_mask*iverted_mask2 ),'/tmp/img_slic.mhd' )
     SimpleITK.WriteImage(srm_smothed_image, '/tmp/srm_smth.mhd')
+    srm_pet_resampled = resamplig(t1, srm_pet, interpolator=SimpleITK.sitkNearestNeighbor)
+    SimpleITK.WriteImage(srm_pet_resampled, '/tmp/srm_pet_resampled.mhd')
+    SimpleITK.WriteImage(srm_smothed_image*srm_pet_resampled, '/tmp/srm_t1_pet.mhd')
     SimpleITK.WriteImage( SimpleITK.Mask( itkImageToSLIC( srm_smothed_image, n_seg=500, compactness=0.001 ),iverted_mask*iverted_mask2 ), '/tmp/slic_srm_umap.mhd')
     #SimpleITK.WriteImage( SimpleITK.Mask( srm(no_bck_image, q=1600, smooth= [1,1,1]),iverted_mask ), '/tmp/slic_srm3.mhd')
     
