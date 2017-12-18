@@ -11,6 +11,7 @@ import SimpleITK
 import tempfile 
 import time
 import os
+import pandas as pd
 
 import glob
 
@@ -152,6 +153,18 @@ def test_label_bck():
                 SimpleITK.WriteImage(resamplig(t1_im, mask, interpolator=SimpleITK.sitkNearestNeighbor),  os.path.join('/tmp/resam'+study+'.mhd')) 
 
 
+def simple_covergence(path_images_list):
+    d = []
+    for p in path_images_list:
+        info_list = p.split('/')[-1].split('_')
+        n_imgs = int(info_list[5])
+        k_prior = int(info_list[7])
+        con_prior = float(info_list[-1][:-4])
+        k = len(np.unique(SimpleITK.GetArrayFromImage(SimpleITK.ReadImage(p) ) ) ) - 1 #Background i not considered a cluster
+        d.append({'n_imgs':n_imgs, 'k_prior':k_prior, 'con_prior':con_prior, 'k':k})
+    return pd.DataFrame(d)
+        
+        
 
 
 if __name__ == "__main__":
