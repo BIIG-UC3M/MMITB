@@ -11,6 +11,10 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import RobustScaler,StandardScaler
 import glob
+from abc import ABCMeta, abstractmethod
+import inspect
+from sklearn import mixture
+
 
 
 class Region():
@@ -153,6 +157,47 @@ class ModalityImage():
             d[self.short_id[self.image_modality]+'_'+feat]=pd.Series([FEATS[feat](label) for label in stats_filter.GetLabels()], index = stats_filter.GetLabels())
         return pd.DataFrame(d)
     
+    def __str__(self):
+        return self.short_id[self.image_modality]
+
+class ClusterModel():
+    __metaclass__ = ABCMeta
+   
+    @abstractmethod
+    def predict(self, features): pass
+    
+    @abstractmethod
+    def fit(self, features): pass
+
+    @abstractmethod
+    def get_components(self): pass
+
+class SklearnModel(ClusterModel):
+    def __init__(self, skmodel):
+        mixtures = [e[1] for e in  inspect.getmembers(mixture,inspect.isclass)]
+        
+        def some_instance(skmodel):
+            for m in mixtures:
+                if isinstance(skmodel, m): return True
+            return False
+    
+        if not some_instance(skmodel):
+            print ('No Valid skmmodel mixture')
+            return None
+        self.skmodel = skmodel
+    
+    def predict(self, features):
+        return self.skmodel.predict(features)
+    
+    def fit(self, features):
+        self.skmodel.fit(features)
+        
+    def get_components(self):
+        return self.skmodel.n_components
+        
+    
+    def __str__(self):
+        return self.skmodel.__str__()
 
 class MultiModalityImage():
     def __init__(self, modalities_imgs, labels_mask_image = None):
@@ -202,6 +247,9 @@ class MultiModalityImage():
         except ValueError:
             print ('Incorrect modality_id '+modality_id)
             return  None
+    
+    def __str__(self):
+        return 'modalities_'+str(len(self.modalities_imgs))
         
     def get_cluster_map(self, modality_image_id, region_cluster_dict):
         """
@@ -209,91 +257,112 @@ class MultiModalityImage():
         TODO: correspondance betwwe labes in label_mask_image and region_cluster_dict
         """
         clusters = region_cluster_dict.values()
-        data_type = SimpleITK.sitkUInt8 if np.max(clusters) < 256 else SimpleITK.sitkUInt16
+        data_type = SimpleITK.sitkUInt8 if np.max(clusters) < 256 else SimpleITK.sitkUInt16 #TODO Ajuste dtype generico
         img_out = SimpleITK.Image(self.label_mask_image.GetSize(), data_type)
         img_out.CopyInformation(self.label_mask_image)
         for k in region_cluster_dict.keys():
             img_out += SimpleITK.Cast((self.label_mask_image == k) * region_cluster_dict[k],data_type)
         return self.get_modality_image_by_id(modality_image_id).resample_image_to_modality(img_out)
+    
+    def mixture_map(self, model = SklearnModel(mixture.BayesianGaussianMixture(n_components = 4, max_iter = 3000)),
+                    save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,None), return_map = False  ):
+        if not isinstance(model, ClusterModel):
+            print('Incorrect Model. Must be a ClusterMode Instance')
+            return None
+        clean_feats = self.multimodality_feats.dropna()
+        model.fit(clean_feats)
+        y = model.predict(clean_feats)
+        f = {clean_feats.index.values[i]:y[i]+1 for i in range(len(y))}
+        print f
+        mix_map = self.get_cluster_map(save_map[0], f)
+        print mix_map
+        if save_map[1] is not None: #Otherwise the dir path
+            SimpleITK.WriteImage(mix_map,save_map[1])
+        
+        return mix_map,model if return_map else model
+            
 
-from sklearn import mixture
-def mixture_map(multimodality_image, mix = 0, clusters = 2, wei_prior = None):
-    if not isinstance(multimodality_image, MultiModalityImage):
-        print ("Iconrrecto multimodality image onject")
-        return None
-    GMM = 'GMM'
-    BMM = 'BMM'
-    mixture_fun = mixture.GaussianMixture if mix == 0 else mixture.BayesianGaussianMixture
-    mixture_string = GMM if mix == 0 else BMM
-    
-    if mixture_string == GMM:
-        mixture_fun = mixture_fun(n_components = clusters, covariance_type = 'full')
-    else:
-        mixture_fun = mixture_fun(n_components = clusters, covariance_type = 'full', weight_concentration_prior = wei_prior, max_iter = 5000)
-    #multimodality_image.set_regions_feats()
-    clean_feats = multimodality_image.multimodality_feats.dropna()
-    #X = StandardScaler().fit_transform(clean_feats)
-    mixture_fun.fit(clean_feats)
-    y = mixture_fun.predict(clean_feats)
-    f = {clean_feats.index.values[i]:y[i]+1 for i in range(len(y))}
-    SimpleITK.WriteImage(multimodality_image.get_cluster_map(ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT, f),
-                         '/tmp/map_'+'imgs_pt_and_t1_'+str(len(multimodality_image.modalities_imgs))+'_'+mixture_string+'_'+str(clusters)+'_prior_'+str(wei_prior)+'.mhd')
-    return mixture_fun.bic(clean_feats) if mixture_string == GMM else 'covergencia '+str(mixture_fun.converged_)+ ' iter '+ str(mixture_fun.n_iter_)+ ' lower_bound '+str( mixture_fun.lower_bound_)
-    
-    
+#
+#def mixture_map(multimodality_image, mix = 0, clusters = 2, wei_prior = None):
+#    if not isinstance(multimodality_image, MultiModalityImage):
+#        print ("Iconrrecto multimodality image onject")
+#        return None
+#    GMM = 'GMM'
+#    BMM = 'BMM'
+#    mixture_fun = mixture.GaussianMixture if mix == 0 else mixture.BayesianGaussianMixture
+#    mixture_string = GMM if mix == 0 else BMM
+#    
+#    if mixture_string == GMM:
+#        mixture_fun = mixture_fun(n_components = clusters, covariance_type = 'full')
+#    else:
+#        mixture_fun = mixture_fun(n_components = clusters, covariance_type = 'full', weight_concentration_prior = wei_prior, max_iter = 5000)
+#    #multimodality_image.set_regions_feats()
+#    clean_feats = multimodality_image.multimodality_feats.dropna()
+#    #X = StandardScaler().fit_transform(clean_feats)
+#    mixture_fun.fit(clean_feats)
+#    y = mixture_fun.predict(clean_feats)
+#    f = {clean_feats.index.values[i]:y[i]+1 for i in range(len(y))}
+#    SimpleITK.WriteImage(multimodality_image.get_cluster_map(ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT, f),
+#                         '/tmp/map_'+'imgs_ptandt1_imgs_'+str(len(multimodality_image.modalities_imgs))+'_'+mixture_string+'_clusters_'+str(clusters)+'_prior_'+str(wei_prior)+'_feats_'+str(clean_feats.shape[1])+'_lw_'+str( mixture_fun.lower_bound_)+'.mhd')
+#    return mixture_fun.bic(clean_feats) if mixture_string == GMM else 'covergencia '+str(mixture_fun.converged_)+ ' iter '+ str(mixture_fun.n_iter_)+ ' lower_bound '+str( mixture_fun.lower_bound_)
+#    
+# 
+im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
+mm = MultiModalityImage(im_d, labels_mask_image='/tmp/srm_pet200.mhd')  
+mm.set_regions_feats([Region.MEAN])
+mm.mixture_map()
+
 min_clus = 2
 max_clus = 30 
-K = [3,4,5,7,10,15,20,25,30,40,50,60,70,80,90,100]      
+K = [3,4,5,7,10,15,25,40,60,100]      
 if __name__ == "__main__":
     im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
     imgs = glob.glob('/tmp/map_imgs_pt_and_t1_*')
     for j,feats_l in enumerate([[Region.MEAN],[Region.MEAN, Region.MEDIAN], [Region.MEAN, Region.MEDIAN, Region.MIN],[Region.MEAN, Region.MEDIAN, Region.MIN, Region.MAX] ]):
-        for wei in [0.0001, 0.001, 0.01, 0.1, 0.2,0.5,0.75,1.0]:
-            mm = MultiModalityImage(im_d, labels_mask_image='/tmp/srm_t1_pet.mhd')
-            mm.set_regions_feats(feats_l)
+        for wei in [0.001,0.5,1.0]:
+            mm = MultiModalityImage(im_d, labels_mask_image='/tmp/srm_pet200.mhd')
+#            mm.set_regions_feats(feats_l)
             
-            print('Using Contrast t1')
-            for i in K:
-                print i
-                if('/tmp/map_imgs_pt_and_t1_'+str(len(mm.modalities_imgs))+'_BMM_'+str(i)+'_prior_'+str(wei)+'.mhd' in imgs):
-                    continue
-                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
-            
-            mm.add_modality_images({ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
-            mm.set_regions_feats(feats_l)
-            print('Using PET')
-            for i in K:
-                #print i,mixture_map(mm, clusters=i)
-                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
-                
-            mm.add_modality_images({ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019'})   
-            mm.set_regions_feats(feats_l)
-            for i in K:
-                print('Using PreContrast T1')
-                #print mixture_map(mm, clusters=i) 
-                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
-                
-            mm.add_modality_images({ModalityImage.THO_T2_SPC_COR_PACE:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_t2_spc_cor_pace_0014'})   
-            mm.set_regions_feats(feats_l)
-            print('Using T2_SPC')
-            for i in K:
-                #print i,mixture_map(mm, clusters=i) 
-                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
-                
-            mm.add_modality_images({ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_hasteirm_tra_mbh_exsp_0017'})   
-            mm.set_regions_feats(feats_l)
-            print('Using T2_HASTREIM')
-            for i in K:
-                #print i,mixture_map(mm, clusters=i) 
-                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
-            
-                            
-            mm.add_modality_images({ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_haste_cor_bh_spair_exsp_0002'})   
-            mm.set_regions_feats(feats_l)
-            print('Using T2_HASTE')
-            for i in K:
-                #print i,mixture_map(mm, clusters=i) 
-                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
+#            print('Using Contrast t1')
+#            for i in K:
+#                print i
+#                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
+#            
+#            mm.add_modality_images({ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
+#            mm.set_regions_feats(feats_l)
+#            print('Using PET')
+#            for i in K:
+#                #print i,mixture_map(mm, clusters=i)
+#                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
+#                
+#            mm.add_modality_images({ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019'})   
+#            mm.set_regions_feats(feats_l)
+#            for i in K:
+#                print('Using PreContrast T1')
+#                #print mixture_map(mm, clusters=i) 
+#                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
+#                
+#            mm.add_modality_images({ModalityImage.THO_T2_SPC_COR_PACE:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_t2_spc_cor_pace_0014'})   
+#            mm.set_regions_feats(feats_l)
+#            print('Using T2_SPC')
+#            for i in K:
+#                #print i,mixture_map(mm, clusters=i) 
+#                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
+#                
+#            mm.add_modality_images({ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_hasteirm_tra_mbh_exsp_0017'})   
+#            mm.set_regions_feats(feats_l)
+#            print('Using T2_HASTREIM')
+#            for i in K:
+#                #print i,mixture_map(mm, clusters=i) 
+#                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
+#            
+#                            
+#            mm.add_modality_images({ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_haste_cor_bh_spair_exsp_0002'})   
+#            mm.set_regions_feats(feats_l)
+#            print('Using T2_HASTE')
+#            for i in K:
+#                #print i,mixture_map(mm, clusters=i) 
+#                print i,j,mixture_map(mm, clusters=i, mix = 1, wei_prior=wei),'Bayes'
                   
          
 
