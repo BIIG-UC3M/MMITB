@@ -190,6 +190,7 @@ if __name__ == "__main__":
     iverted_mask2 = SimpleITK.InvertIntensity(get_background(t1, q=25), maximum=1 )
     SimpleITK.WriteImage(iverted_mask, '/tmp/inverted_mask_umap.mhd')
     SimpleITK.WriteImage(iverted_mask2, '/tmp/inverted_mask_t1.mhd')
+    
     iverted_mask = resamplig(t1, iverted_mask, interpolator=SimpleITK.sitkNearestNeighbor )
     no_bck_image = SimpleITK.Mask(t1, iverted_mask*iverted_mask2)
     SimpleITK.WriteImage(no_bck_image, '/tmp/no_bck_img.mhd')
@@ -205,6 +206,7 @@ if __name__ == "__main__":
             mask_pet.SetPixel(i,j,0,0)
             mask_pet.SetPixel(i,j,126,0)
     masked_pet = SimpleITK.Mask(pet,mask_pet )
+    
     srm_pet = srm(masked_pet, q = 200)
     SimpleITK.WriteImage(SimpleITK.Mask(srm_pet, mask_pet), '/tmp/srm_pet200.mhd')
     slic_pet = itkImageToSLIC(masked_pet, n_seg = 10000, compactness=0.0000001 )

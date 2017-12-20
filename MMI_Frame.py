@@ -5,7 +5,7 @@ Created on Tue Nov 21 12:06:52 2017
 
 @author: pmacias
 """
-from utilities import read_image, resamplig
+from utilities import read_image, resamplig,  multi_label_mask,get_background, srm
 import SimpleITK
 import pandas as pd
 import numpy as np
@@ -132,7 +132,7 @@ class ModalityImage():
         
     def get_features(self, labels_mask, features = [Region.MEAN]):
         resample_labels = self.resample_image_to_modality(labels_mask)
-        SimpleITK.WriteImage(resample_labels, '/tmp/resampled_labels'+ModalityImage.short_id[self.image_modality]+'.mhd')
+        #SimpleITK.WriteImage(resample_labels, '/tmp/resampled_labels'+ModalityImage.short_id[self.image_modality]+'.mhd')
         stats_filter = SimpleITK.LabelIntensityStatisticsImageFilter()
         FEATS = {Region.SIZE:stats_filter.GetPhysicalSize,
                  Region.ELONGATION:stats_filter.GetElongation,
@@ -250,19 +250,92 @@ class MultiModalityImage():
     
     def __str__(self):
         return 'modalities_'+str(len(self.modalities_imgs))
+    
+    def get_umap_mask(self, labels_out = [224,1000]):
+        umap = self.get_modality_image_by_id(ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP)
+        if umap is None:
+            raise Exception('umap image is not defined')
+        return multi_label_mask(umap.itk_image, labels_out)
+    
+    
+    def get_t1post_mask(self, q = 25):
+        t1 = self.get_modality_image_by_id(ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT)
+        if t1 is None:
+            raise Exception('t1 image is not defined')
+        return SimpleITK.InvertIntensity(get_background(t1.itk_image, q=q), maximum=1 )
+    
+    def get_pet_mask(self, umap_mask = None, t1_mask = None, avoid_limits = True):
+        pet = self.get_modality_image_by_id(ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES)
+        if pet is None:
+            raise Exception('pet image is not defined')
+        umap_mask = self.get_umap_mask() if umap_mask is None else umap_mask
+        t1_mask = self.get_t1post_mask() if t1_mask is None else t1_mask
         
+        t1 = self.get_modality_image_by_id(ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT)
+        umap_mask = resamplig(t1.itk_image, umap_mask, interpolator=SimpleITK.sitkNearestNeighbor )
+        
+        mask_pet = resamplig(pet.itk_image, umap_mask*t1_mask, interpolator = SimpleITK.sitkNearestNeighbor)
+        
+        if avoid_limits:
+            size = mask_pet.GetSize()
+            for i in range(size[0]):
+                for j in range(size[1]):
+                    mask_pet.SetPixel(i,j,0,0)
+                    mask_pet.SetPixel(i,j,size[2]-1,0)
+        return mask_pet
+    
+    def get_labels_mask(self,q_pet_srm = 200, q_t1_srm = 50, **kargs):
+        umap_mask =  kargs.pop('umap_mask',None)
+        umap_mask = self.get_umap_mask() if umap_mask is None else umap_mask
+        
+        t1_mask = kargs.pop('t1_mask' , None)
+        t1_mask = self.get_t1post_mask() if t1_mask is None else t1_mask
+        
+        t1 = self.get_modality_image_by_id(ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT).itk_image
+        pet = self.get_modality_image_by_id(ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES).itk_image
+        
+        mask_pet = self.get_pet_mask(umap_mask = umap_mask, t1_mask = t1_mask)
+        
+        t1_masked = SimpleITK.Mask(t1, resamplig(t1, umap_mask, interpolator=SimpleITK.sitkNearestNeighbor )*t1_mask)
+        masked_pet = SimpleITK.Mask(pet,mask_pet)
+        
+        
+        srm_pet_resampled = resamplig(t1, srm(masked_pet, q = q_pet_srm ), interpolator=SimpleITK.sitkNearestNeighbor)
+        SimpleITK.WriteImage(srm(t1_masked, q=q_t1_srm, smooth=[1,1,1]), '/tmp/t1_mask.mhd')
+        SimpleITK.WriteImage(srm_pet_resampled, '/tmp/pet_mask.mhd')
+        
+        return srm(t1_masked, q=q_t1_srm, smooth=[1,1,1])*srm_pet_resampled
+        
+        
+        
+#    def get_cluster_map(self, modality_image_id, region_cluster_dict):
+#        """
+#        region_cluster_dict. key must be the region and value the cluster
+#        TODO: correspondance betwwe labes in label_mask_image and region_cluster_dict
+#        """
+#        clusters = region_cluster_dict.values()
+#        data_type = SimpleITK.sitkUInt8 if np.max(clusters) < 256 else SimpleITK.sitkUInt16 #TODO Ajuste dtype generico
+#        img_out = SimpleITK.Image(self.label_mask_image.GetSize(), data_type)
+#        img_out.CopyInformation(self.label_mask_image)
+#        for k in region_cluster_dict.keys():
+#            img_out += SimpleITK.Cast((self.label_mask_image == k) * region_cluster_dict[k],data_type)
+#        return self.get_modality_image_by_id(modality_image_id).resample_image_to_modality(img_out)
+    
     def get_cluster_map(self, modality_image_id, region_cluster_dict):
-        """
-        region_cluster_dict. key must be the region and value the cluster
-        TODO: correspondance betwwe labes in label_mask_image and region_cluster_dict
-        """
         clusters = region_cluster_dict.values()
-        data_type = SimpleITK.sitkUInt8 if np.max(clusters) < 256 else SimpleITK.sitkUInt16 #TODO Ajuste dtype generico
-        img_out = SimpleITK.Image(self.label_mask_image.GetSize(), data_type)
+        data_type = np.uint8 if np.max(clusters) < 256 else np.uint16 #TODO Ajuste dtype generico
+        #img_out = SimpleITK.Image(self.label_mask_image.GetSize(), data_type)
+        img_label = SimpleITK.GetArrayFromImage(self.label_mask_image)
+        img_out = np.zeros(img_label.shape, dtype = data_type)
+        
+        for c in np.unique(clusters):
+            labels = [l for l in region_cluster_dict.keys() if region_cluster_dict[l]==c]
+            ix = np.isin(img_label, labels)
+            img_out[ix] = c
+        img_out = SimpleITK.GetImageFromArray(img_out)
         img_out.CopyInformation(self.label_mask_image)
-        for k in region_cluster_dict.keys():
-            img_out += SimpleITK.Cast((self.label_mask_image == k) * region_cluster_dict[k],data_type)
         return self.get_modality_image_by_id(modality_image_id).resample_image_to_modality(img_out)
+        
     
     def mixture_map(self, model = SklearnModel(mixture.BayesianGaussianMixture(n_components = 4, max_iter = 3000)),
                     save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,None), return_map = False  ):
@@ -273,9 +346,7 @@ class MultiModalityImage():
         model.fit(clean_feats)
         y = model.predict(clean_feats)
         f = {clean_feats.index.values[i]:y[i]+1 for i in range(len(y))}
-        print f
         mix_map = self.get_cluster_map(save_map[0], f)
-        print mix_map
         if save_map[1] is not None: #Otherwise the dir path
             SimpleITK.WriteImage(mix_map,save_map[1])
         
@@ -310,17 +381,24 @@ class MultiModalityImage():
 im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
 mm = MultiModalityImage(im_d, labels_mask_image='/tmp/srm_pet200.mhd')  
 mm.set_regions_feats([Region.MEAN])
-mm.mixture_map()
+mm.add_modality_image({ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
+mm.add_modality_image({ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007'})
+#pet_mask = mm.get_pet_mask()
+#SimpleITK.WriteImage(pet_mask, '/tmp/pet_mask_test.mhd')
+mask = mm.get_labels_mask()
+SimpleITK.WriteImage(mask, '/tmp/mask_test.mhd')
 
-min_clus = 2
-max_clus = 30 
-K = [3,4,5,7,10,15,25,40,60,100]      
-if __name__ == "__main__":
-    im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
-    imgs = glob.glob('/tmp/map_imgs_pt_and_t1_*')
-    for j,feats_l in enumerate([[Region.MEAN],[Region.MEAN, Region.MEDIAN], [Region.MEAN, Region.MEDIAN, Region.MIN],[Region.MEAN, Region.MEDIAN, Region.MIN, Region.MAX] ]):
-        for wei in [0.001,0.5,1.0]:
-            mm = MultiModalityImage(im_d, labels_mask_image='/tmp/srm_pet200.mhd')
+#mm.mixture_map()
+
+#min_clus = 2
+#max_clus = 30 
+#K = [3,4,5,7,10,15,25,40,60,100]      
+#if __name__ == "__main__":
+#    im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
+#    imgs = glob.glob('/tmp/map_imgs_pt_and_t1_*')
+#    for j,feats_l in enumerate([[Region.MEAN],[Region.MEAN, Region.MEDIAN], [Region.MEAN, Region.MEDIAN, Region.MIN],[Region.MEAN, Region.MEDIAN, Region.MIN, Region.MAX] ]):
+#        for wei in [0.001,0.5,1.0]:
+#            mm = MultiModalityImage(im_d, labels_mask_image='/tmp/srm_pet200.mhd')
 #            mm.set_regions_feats(feats_l)
             
 #            print('Using Contrast t1')
