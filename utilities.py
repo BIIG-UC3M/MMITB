@@ -12,7 +12,7 @@ import tempfile
 import time
 import os
 import pandas as pd
-
+from sklearn.externals import joblib
 import glob
 
 from Filters import SRM, Keep_N_Objects
@@ -157,13 +157,44 @@ def simple_covergence(path_images_list):
     d = []
     for p in path_images_list:
         info_list = p.split('/')[-1].split('_')
-        n_imgs = int(info_list[5])
+        n_imgs = int(info_list[4])
         k_prior = int(info_list[7])
-        con_prior = float(info_list[-1][:-4])
+        con_prior = float(info_list[9])
+        feats = int(info_list[11])
+        lw = float(info_list[-1][:-4])
         k = len(np.unique(SimpleITK.GetArrayFromImage(SimpleITK.ReadImage(p) ) ) ) - 1 #Background i not considered a cluster
-        d.append({'n_imgs':n_imgs, 'k_prior':k_prior, 'con_prior':con_prior, 'k':k})
+        d.append({'n_imgs':n_imgs, 'k_prior':k_prior, 'con_prior':con_prior, 'k':k, 'feats':feats, 'lw':lw})
     return pd.DataFrame(d)
-        
+
+def merge_label_maps(itk_imgs, mode = SimpleITK.MergeLabelMapFilter.Aggregate, change_vals = False):
+    if change_vals:
+        for i in range(len(itk_imgs) - 1):
+            print i
+            maximum = np.max(SimpleITK.GetArrayFromImage(itk_imgs[i])) 
+            img_array = SimpleITK.GetArrayFromImage(itk_imgs[i+1])
+            img_array[img_array != 0] =  img_array[img_array != 0] + maximum
+            itk_imgs[i+1] = SimpleITK.GetImageFromArray(img_array)
+            itk_imgs[i+1].CopyInformation(itk_imgs[i])
+            
+    label_imgs = [ SimpleITK.LabelImageToLabelMap(img) for img in itk_imgs] 
+    lab_img = SimpleITK.LabelMapToLabel(SimpleITK.MergeLabelMap(label_imgs, mode))
+    return lab_img, len(np.unique(SimpleITK.GetArrayFromImage(lab_img)))
+
+def proper_uint_type(number):
+    if number < 2**8 - 1:
+        return np.uint8
+    if number < 2**16 - 1:
+        return np.uint16
+    if number < 2**32 - 1:
+        return np.uint32
+    return np.uint64
+
+###To save and load onjects
+def save_clf(obj, name ):
+    _ = joblib.dump(obj, name, compress=9)
+
+    
+         
         
 
 
@@ -182,6 +213,10 @@ if __name__ == "__main__":
 #    images = glob.glob('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB7*/*/'+'/*/*t1*')
     #for im in images:
         #get_background(read_dicom(im))
+    
+    t1_mask = SimpleITK.ReadImage('/tmp/t1_mask.mhd')
+    pet_mask = SimpleITK.ReadImage('/tmp/pet_mask.mhd')
+    a = merge_label_maps([t1_mask, pet_mask])
         
     t1 = read_dicom('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034')
     umap = read_dicom('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007')
