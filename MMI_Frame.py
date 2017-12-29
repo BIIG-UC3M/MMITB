@@ -388,38 +388,41 @@ if __name__ == "__main__":
             
             print('Using Contrast t1')
             for i in K:
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j) 
+                n_imgs = len(mm.modalities_imgs)
+                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
                 print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=3000,random_state=69)),
+                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
                                save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
                 model = model[1]
                 model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_})
+                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
                 
             
             mm.add_modality_images({ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
             mm.set_regions_feats(feats_l)
             print('Using PET')
             for i in K:
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j) 
+                n_imgs = len(mm.modalities_imgs)
+                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
                 print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=3000,random_state=69)),
+                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
                                save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
                 model = model[1]
                 model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_})
+                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
                 
                 
             mm.add_modality_images({ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019'})   
             mm.set_regions_feats(feats_l)
             for i in K:
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j) 
+                n_imgs = len(mm.modalities_imgs)
+                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
                 print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=3000,random_state=69)),
+                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
                                save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
                 model = model[1]
                 model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_})
+                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
                 
                 
                 
@@ -428,13 +431,14 @@ if __name__ == "__main__":
             mm.set_regions_feats(feats_l)
             print('Using T2_SPC')
             for i in K:
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j) 
+                n_imgs = len(mm.modalities_imgs)
+                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
                 print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=3000,random_state=69)),
+                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
                                save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
                 model = model[1]
                 model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_})
+                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
                 
                 
                 
@@ -443,13 +447,14 @@ if __name__ == "__main__":
             mm.set_regions_feats(feats_l)
             print('Using T2_HASTREIM')
             for i in K:
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j) 
+                n_imgs = len(mm.modalities_imgs)
+                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
                 print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=3000,random_state=69)),
+                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
                                save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
                 model = model[1]
                 model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_})
+                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
                 
                 
                 
@@ -458,13 +463,16 @@ if __name__ == "__main__":
             mm.set_regions_feats(feats_l)
             print('Using T2_HASTE')
             for i in K:
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j) 
+                n_imgs = len(mm.modalities_imgs)
+                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
                 print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=3000,random_state=69)),
+                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
                                save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
                 model = model[1]
                 model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_})
+                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
+    
+    df.to_csv('/media/pmacias/DATA2/amunoz/NUS_R2/df.csv')
                 
 
         
