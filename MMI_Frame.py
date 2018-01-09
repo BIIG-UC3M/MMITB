@@ -16,6 +16,8 @@ import inspect
 from sklearn import mixture
 from sklearn.externals import joblib
 
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 
@@ -159,6 +161,13 @@ class ModalityImage():
             d[self.short_id[self.image_modality]+'_'+feat]=pd.Series([FEATS[feat](label) for label in stats_filter.GetLabels()], index = stats_filter.GetLabels())
         return pd.DataFrame(d)
     
+    def get_voxels_label(self, label_mask, label):
+        resample_image = resamplig(label_mask, self.itk_image, interpolator = SimpleITK.sitkBSpline)
+        array_im = SimpleITK.GetArrayFromImage(resample_image) 
+        intensities = array_im[SimpleITK.GetArrayFromImage(label_mask) == label]
+        return pd.DataFrame({self.short_id[self.image_modality]:pd.Series( intensities.tolist() ,index = range(len(intensities)) ) })
+        
+    
     def __str__(self):
         return self.short_id[self.image_modality]
 
@@ -223,6 +232,24 @@ class MultiModalityImage():
     def set_regions_feats(self, features = [Region.MEAN]):
         self.multimodality_feats = pd.concat([ modality_img.get_features(self.label_mask_image,features) for modality_img in self.modalities_imgs] , axis=1)
         
+    def density_label(self, labels, plot = True, max_samples = 2000):
+        df = pd.DataFrame()
+        df_plot = pd.DataFrame()
+        for label in labels:
+            df_voxels = pd.concat([ modality_img.get_voxels_label(self.label_mask_image,label) for modality_img in self.modalities_imgs] , axis=1)
+            df_voxels['Label'] = label
+            df = pd.concat([df, df_voxels])
+            if plot:
+                step = len(df_voxels)/max_samples + 1
+                df_plot = pd.concat([df_plot, df_voxels[0::step]])
+        if plot:
+            g = sns.PairGrid(df_plot, hue='Label', vars=df_plot.columns[[0,2,3,4,5,6]])
+            g.map_upper(plt.scatter, alpha=.5)
+            g.map_lower(sns.kdeplot)
+            g.map_diag(sns.kdeplot, lw=2);
+            g.add_legend(fontsize=10, bbox_to_anchor=(0.9, 0.5, 0, 0))
+        return df
+        
         
     def add_modality_image(self, modality_img):
         if  isinstance(modality_img,ModalityImage):
@@ -244,7 +271,7 @@ class MultiModalityImage():
             print ('Iconrrect list or dictionary of modality images')
             
     def set_label_mask(self, labels_mask_image):
-        self.label_mask_image = read_image(labels_mask_image) if labels_mask_image is not None else None
+        self.label_mask_image = read_image(labels_mask_image) if labels_mask_image is not None else self.get_labels_mask()
         
     def get_modality_image_by_id(self, modality_id):
         try:
@@ -365,7 +392,7 @@ class MultiModalityImage():
 #im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
 #mm = MultiModalityImage(im_d, labels_mask_image=None)  
 ##mm.set_regions_feats([Region.MEAN])
-#mm.add_modality_image({ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
+#mm.add_modality_image({ModalityImage.THO_MRAC_PET_15_MIN_LIST_legend_outAC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
 #mm.add_modality_image({ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007'})
 ##pet_mask = mm.get_pet_mask()
 ##SimpleITK.WriteImage(pet_mask, '/tmp/pet_mask_test.mhd')
@@ -379,100 +406,148 @@ max_clus = 30
 K = [3,4,5,7,10,15,25,40,60,100]      
 if __name__ == "__main__":
     im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
-    imgs = glob.glob('/tmp/map_imgs_pt_and_t1_*')
-    df = []
-    for j,feats_l in enumerate([[Region.MEAN],[Region.MEAN, Region.MEDIAN], [Region.MEAN, Region.MEDIAN, Region.MIN],[Region.MEAN, Region.MEDIAN, Region.MIN, Region.MAX] ]):
-        for wei in [0.001,0.5,1.0]:
-            mm = MultiModalityImage(im_d, labels_mask_image='/tmp/mask_test5.mhd')
-            mm.set_regions_feats(feats_l)
-            
-            print('Using Contrast t1')
-            for i in K:
-                n_imgs = len(mm.modalities_imgs)
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
-                print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
-                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
-                model = model[1]
-                model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
-                
-            
-            mm.add_modality_images({ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
-            mm.set_regions_feats(feats_l)
-            print('Using PET')
-            for i in K:
-                n_imgs = len(mm.modalities_imgs)
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
-                print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
-                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
-                model = model[1]
-                model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
-                
-                
-            mm.add_modality_images({ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019'})   
-            mm.set_regions_feats(feats_l)
-            for i in K:
-                n_imgs = len(mm.modalities_imgs)
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
-                print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
-                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
-                model = model[1]
-                model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
-                
-                
-                
-                
-            mm.add_modality_images({ModalityImage.THO_T2_SPC_COR_PACE:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_t2_spc_cor_pace_0014'})   
-            mm.set_regions_feats(feats_l)
-            print('Using T2_SPC')
-            for i in K:
-                n_imgs = len(mm.modalities_imgs)
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
-                print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
-                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
-                model = model[1]
-                model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
-                
-                
-                
-                
-            mm.add_modality_images({ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_hasteirm_tra_mbh_exsp_0017'})   
-            mm.set_regions_feats(feats_l)
-            print('Using T2_HASTREIM')
-            for i in K:
-                n_imgs = len(mm.modalities_imgs)
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
-                print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
-                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
-                model = model[1]
-                model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
-                
-                
-                
-                
-            mm.add_modality_images({ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_haste_cor_bh_spair_exsp_0002'})   
-            mm.set_regions_feats(feats_l)
-            print('Using T2_HASTE')
-            for i in K:
-                n_imgs = len(mm.modalities_imgs)
-                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
-                print name
-                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
-                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
-                model = model[1]
-                model.save_clf(name+'.pkl')
-                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
+    im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' ,
+            ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
+            ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018',
+            ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019',
+            ModalityImage.THO_T2_SPC_COR_PACE:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_t2_spc_cor_pace_0014',
+            ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_hasteirm_tra_mbh_exsp_0017',
+            ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_haste_cor_bh_spair_exsp_0002'
+            }
+    mm = MultiModalityImage(im_d, labels_mask_image='/tmp/label_mask.mhd')
+    #a = mm.density_label([2932,444,274,267,265,3763,2762,272,263,17337], max_samples=100)
+    #habitants = mm.density_label([20915,20917,20918,697,760,768,741,767,20526], max_samples=100)
+    lungs_labels = list(set([3764,2747, 2932,2741,3894,1469,3763,2762,1477]))
+    tissue_labels = list(set([267,274,414,186,993,264,263,754,1361]))
+    bone_labels = list(set([272,1572,1364,946,240,940]))
+    cavities_labels = list(set([4454,6902,13468,3163]))
+    lesions_labels = list(set([4719,1220,267,8553,8556,578,574,592,741,759,20464,760]))
+    nodules_labels = list(set([397,499,10711]))
+    pulmonaty_veseels = list(set([4285,424,4451,10689,7957]))
+    l = [lungs_labels,tissue_labels, bone_labels, cavities_labels, lesions_labels, nodules_labels, pulmonaty_veseels]
+    ls = ['lung','tissue', 'bone', 'cavities', 'lesions', 'nodules', 'veseels']
+    df = pd.DataFrame()
+    for i,s in enumerate(l):
+        print(ls[i])
+        exact_df = mm.density_label(s, max_samples=200, plot=False)
+        exact_df['class'] = ls[i]
+        df = pd.concat([df, exact_df])
     
-    df.to_csv('/media/pmacias/DATA2/amunoz/NUS_R2/df.csv')
+      
+    g = sns.PairGrid(df,vars=df.columns[:-1],hue='class')
+    g.map_upper(plt.scatter, alpha = 0.8)
+    g.map_lower(sns.kdeplot, cmap="Blues_d")
+    g.map_diag(sns.kdeplot, lw=2, legend=False);
+    
+    
+#    feats_l = [Region.MEAN]
+#    mm.set_regions_feats(feats_l)
+#    clean_feats = mm.multimodality_feats.dropna()
+#    
+#    
+#    g = sns.PairGrid(clean_feats,vars=clean_feats.columns[:-1],hue='label')
+#    g.map_upper(plt.scatter)
+#    g.map_lower(sns.kdeplot, cmap="Blues_d")
+#    g.map_diag(sns.kdeplot, lw=3, legend=False);
+#    
+    
+    
+    
+#    imgs = glob.glob('/tmp/map_imgs_pt_and_t1_*')
+    
+#    df = []
+#    for j,feats_l in enumerate([[Region.MEAN],[Region.MEAN, Region.MEDIAN], [Region.MEAN, Region.MEDIAN, Region.MIN],[Region.MEAN, Region.MEDIAN, Region.MIN, Region.MAX] ]):
+#        for wei in [0.001,0.5,1.0]:
+#            mm = MultiModalityImage(im_d, labels_mask_image='/tmp/mask_test5.mhd')
+#            mm.set_regions_feats(feats_l)
+#            
+#            print('Using Contrast t1')
+#            for i in K:
+#                n_imgs = len(mm.modalities_imgs)
+#                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
+#                print name
+#                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
+#                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
+#                model = model[1]
+#                model.save_clf(name+'.pkl')
+#                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
+#                
+#            
+#            mm.add_modality_images({ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
+#            mm.set_regions_feats(feats_l)
+#            print('Using PET')
+#            for i in K:
+#                n_imgs = len(mm.modalities_imgs)
+#                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
+#                print name
+#                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
+#                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
+#                model = model[1]
+#                model.save_clf(name+'.pkl')
+#                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
+#                
+#                
+#            mm.add_modality_images({ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019'})   
+#            mm.set_regions_feats(feats_l)
+#            for i in K:
+#                n_imgs = len(mm.modalities_imgs)
+#                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
+#                print name
+#                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
+#                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
+#                model = model[1]
+#                model.save_clf(name+'.pkl')
+#                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
+#                
+#                
+#                
+#                
+#            mm.add_modality_images({ModalityImage.THO_T2_SPC_COR_PACE:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_t2_spc_cor_pace_0014'})   
+#            mm.set_regions_feats(feats_l)
+#            print('Using T2_SPC')
+#            for i in K:
+#                n_imgs = len(mm.modalities_imgs)
+#                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
+#                print name
+#                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
+#                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
+#                model = model[1]
+#                model.save_clf(name+'.pkl')
+#                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
+#                
+#                
+#                
+#                
+#            mm.add_modality_images({ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_hasteirm_tra_mbh_exsp_0017'})   
+#            mm.set_regions_feats(feats_l)
+#            print('Using T2_HASTREIM')
+#            for i in K:
+#                n_imgs = len(mm.modalities_imgs)
+#                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
+#                print name
+#                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
+#                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
+#                model = model[1]
+#                model.save_clf(name+'.pkl')
+#                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
+#                
+#                
+#                
+#                
+#            mm.add_modality_images({ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_haste_cor_bh_spair_exsp_0002'})   
+#            mm.set_regions_feats(feats_l)
+#            print('Using T2_HASTE')
+#            for i in K:
+#                n_imgs = len(mm.modalities_imgs)
+#                name = '/media/pmacias/DATA2/amunoz/NUS_R2/mixVI_K_'+str(i)+'_wei_'+str(wei)+'_feats_'+str(j)+'_imgs_'+str(n_imgs) 
+#                print name
+#                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = i, weight_concentration_prior = wei, max_iter=10000,random_state=69)),
+#                               save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'))
+#                model = model[1]
+#                model.save_clf(name+'.pkl')
+#                df.append({'K':i, 'wei':wei, 'feats':j, 'iers':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'imgs':n_imgs})
+#    
+#    df.to_csv('/media/pmacias/DATA2/amunoz/NUS_R2/df.csv')
                 
 
         

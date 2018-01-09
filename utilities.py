@@ -157,13 +157,13 @@ def simple_covergence(path_images_list):
     d = []
     for p in path_images_list:
         info_list = p.split('/')[-1].split('_')
-        n_imgs = int(info_list[4])
-        k_prior = int(info_list[7])
-        con_prior = float(info_list[9])
-        feats = int(info_list[11])
-        lw = float(info_list[-1][:-4])
+        n_imgs = float(info_list[-1][:-4])
+        k_prior = int(info_list[2])
+        con_prior = float(info_list[4])
+        feats = int(info_list[6])
+        #lw = float(info_list[-1][:-4])
         k = len(np.unique(SimpleITK.GetArrayFromImage(SimpleITK.ReadImage(p) ) ) ) - 1 #Background i not considered a cluster
-        d.append({'n_imgs':n_imgs, 'k_prior':k_prior, 'con_prior':con_prior, 'k':k, 'feats':feats, 'lw':lw})
+        d.append({'n_imgs':n_imgs, 'k_prior':k_prior, 'con_prior':con_prior, 'k':k, 'feats':feats})
     return pd.DataFrame(d)
 
 def merge_label_maps(itk_imgs, mode = SimpleITK.MergeLabelMapFilter.Aggregate, change_vals = False):
