@@ -192,6 +192,35 @@ def proper_uint_type(number):
 ###To save and load onjects
 def save_clf(obj, name ):
     _ = joblib.dump(obj, name, compress=9)
+    
+def indxs_neig(i, n = 1, n_cols = 4, n_rows = 4):
+    i_max = n_cols*n_rows-1
+    n_row = i/n_rows
+    n_col = i - n_cols*n_row
+    row_offsets = []
+    col_offsets = []
+    for row_offset in [n_row + j for j in range(-n,n+1) ]:
+        row_offsets = row_offsets + [row_offset] if row_offset >= 0 and row_offset < n_rows else row_offsets
+        
+    for col_offset in [n_col + j for j in range(-n,n+1) ]:
+        col_offsets = col_offsets + [col_offset] if col_offset >= 0 and col_offset < n_cols else col_offsets
+        
+    out = [n_cols*row + col for row in row_offsets for col in col_offsets]
+    out.remove(i)
+    return out
+    
+    
+def neig_delta(m):
+    axs = m.ndim
+    out = np.zeros(m.shape)
+    
+    for a in range(axs):
+        z = np.diff(m,axis = a)
+        print z
+        print ""
+    
+    return out
+    
 
     
          

@@ -129,14 +129,18 @@ class ModalityImage():
             print('Incorrect image Modality '+image_modality+". Specify one from "+self.modalities_list)
             return None
         self.itk_image = read_image(image_path_or_object)
+        self.label_mask = None
+        self.label_mask_array = None
+        self.resample_image = None
+        self.resample_image_array = None
         
     def resample_image_to_modality(self, image_to_resample, interpolator = SimpleITK.sitkNearestNeighbor):
         return resamplig(self.itk_image, image_to_resample, interpolator= interpolator)
         
         
     def get_features(self, labels_mask, features = [Region.MEAN]):
-        resample_labels = self.resample_image_to_modality(labels_mask)
-        #SimpleITK.WriteImage(resample_labels, '/tmp/resampled_labels'+ModalityImage.short_id[self.image_modality]+'.mhd')
+        self.label_mask = self.resample_image_to_modality(labels_mask)
+
         stats_filter = SimpleITK.LabelIntensityStatisticsImageFilter()
         FEATS = {Region.SIZE:stats_filter.GetPhysicalSize,
                  Region.ELONGATION:stats_filter.GetElongation,
@@ -154,7 +158,7 @@ class ModalityImage():
                  Region.MIN:stats_filter.GetMinimum,
                  Region.MAX:stats_filter.GetMaximum,
                  Region.MEDIAN:stats_filter.GetMedian}
-        stats_filter.Execute( resample_labels,self.itk_image)
+        stats_filter.Execute( self.label_mask,self.itk_image)
         print stats_filter.GetNumberOfLabels()
         d = {}
         for feat in features:
@@ -162,9 +166,14 @@ class ModalityImage():
         return pd.DataFrame(d)
     
     def get_voxels_label(self, label_mask, label):
-        resample_image = resamplig(label_mask, self.itk_image, interpolator = SimpleITK.sitkBSpline)
-        array_im = SimpleITK.GetArrayFromImage(resample_image) 
-        intensities = array_im[SimpleITK.GetArrayFromImage(label_mask) == label]
+        if self.label_mask is not label_mask:
+            #print (self.short_id[self.image_modality],"label_mask is", self.label_mask, 'change by ',label_mask ) 
+            self.label_mask = label_mask
+            self.label_mask_array = SimpleITK.GetArrayFromImage(self.label_mask)
+            self.resample_image = resamplig(self.label_mask, self.itk_image, interpolator = SimpleITK.sitkBSpline)
+            self.resample_image_array = SimpleITK.GetArrayFromImage(self.resample_image) 
+        #print('Intensities for: ',self.short_id[self.image_modality], 'with mask', self.label_mask, 'and resampled image', self.resample_image)
+        intensities = self.resample_image_array[self.label_mask_array == label]
         return pd.DataFrame({self.short_id[self.image_modality]:pd.Series( intensities.tolist() ,index = range(len(intensities)) ) })
         
     
@@ -236,19 +245,20 @@ class MultiModalityImage():
         df = pd.DataFrame()
         df_plot = pd.DataFrame()
         for label in labels:
+            print('label: ',label)
             df_voxels = pd.concat([ modality_img.get_voxels_label(self.label_mask_image,label) for modality_img in self.modalities_imgs] , axis=1)
             df_voxels['Label'] = label
+            df_voxels = pd.DataFrame() if len(df_voxels) < df_voxels.shape[1] else df_voxels
             df = pd.concat([df, df_voxels])
-            if plot:
-                step = len(df_voxels)/max_samples + 1
-                df_plot = pd.concat([df_plot, df_voxels[0::step]])
+            step = len(df_voxels)/max_samples + 1
+            df_plot = pd.concat([df_plot, df_voxels[0::step]])
         if plot:
             g = sns.PairGrid(df_plot, hue='Label', vars=df_plot.columns[[0,2,3,4,5,6]])
             g.map_upper(plt.scatter, alpha=.5)
             g.map_lower(sns.kdeplot)
             g.map_diag(sns.kdeplot, lw=2);
             g.add_legend(fontsize=10, bbox_to_anchor=(0.9, 0.5, 0, 0))
-        return df
+        return df,df_plot
         
         
     def add_modality_image(self, modality_img):
@@ -396,7 +406,7 @@ class MultiModalityImage():
 #mm.add_modality_image({ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007'})
 ##pet_mask = mm.get_pet_mask()
 ##SimpleITK.WriteImage(pet_mask, '/tmp/pet_mask_test.mhd')
-#mask = mm.get_labels_mask()
+#mask = mm.get_labels_mask()g.add_legend(fontsize=10, bbox_to_anchor=(0.9, 0.5, 0, 0))
 #SimpleITK.WriteImage(mask, '/tmp/mask_test5.mhd')
 
 #mm.mixture_map()
@@ -414,32 +424,35 @@ if __name__ == "__main__":
             ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_hasteirm_tra_mbh_exsp_0017',
             ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_haste_cor_bh_spair_exsp_0002'
             }
-    mm = MultiModalityImage(im_d, labels_mask_image='/tmp/label_mask.mhd')
-    #a = mm.density_label([2932,444,274,267,265,3763,2762,272,263,17337], max_samples=100)
-    #habitants = mm.density_label([20915,20917,20918,697,760,768,741,767,20526], max_samples=100)
-    lungs_labels = list(set([3764,2747, 2932,2741,3894,1469,3763,2762,1477]))
-    tissue_labels = list(set([267,274,414,186,993,264,263,754,1361]))
-    bone_labels = list(set([272,1572,1364,946,240,940]))
-    cavities_labels = list(set([4454,6902,13468,3163]))
-    lesions_labels = list(set([4719,1220,267,8553,8556,578,574,592,741,759,20464,760]))
-    nodules_labels = list(set([397,499,10711]))
-    pulmonaty_veseels = list(set([4285,424,4451,10689,7957]))
-    l = [lungs_labels,tissue_labels, bone_labels, cavities_labels, lesions_labels, nodules_labels, pulmonaty_veseels]
-    ls = ['lung','tissue', 'bone', 'cavities', 'lesions', 'nodules', 'veseels']
-    df = pd.DataFrame()
-    for i,s in enumerate(l):
-        print(ls[i])
-        exact_df = mm.density_label(s, max_samples=200, plot=False)
-        exact_df['class'] = ls[i]
-        df = pd.concat([df, exact_df])
-    
+#    mm = MultiModalityImage(im_d, labels_mask_image='/tmp/label_mask.mhd')
+#    #mm.density_label([8256,2,12,34,69])
+#    #a = mm.density_label([2932,444,274,267,265,3763,2762,272,263,17337], max_samples=100)
+#    #habitants = mm.density_label([20915,20917,20918,697,760,768,741,767,20526], max_samples=100)
+#    lungs_labels = list(set([3764,2747, 2932,2741,3894,1469,3763,2762,1477]))row_offsets =  [n_row + j for j in range(-n,n+1) ]
+#    tissue_labels = list(set([267,274,414,186,993,264,263,754,1361]))
+#    bone_labels = list(set([272,1572,1364,946,240,940]))
+#    cavities_labels = list(set([4454,6902,13468,3163,8596]))
+#    lesions_labels = list(set([4719,1220,8553,8556,578,574,592,741,759,20464,760]))
+#    nodules_labels = list(set([]))
+#    pulmonaty_veseels = list(set([4285,424,4451,10689,7957,272,293]))
+#    l = [lungs_labels,tissue_labels, bone_labels, cavities_labels, lesions_labels, nodules_labels, pulmonaty_veseels]
+#    l = [lungs_labels,tissue_labels, bone_labels, cavities_labels, lesions_labels, pulmonaty_veseels]
+#    ls = ['lung','tissue', 'bone', 'cavities', 'lesions', 'nodules', 'veseels']
+#    ls = ['lung','tissue', 'bone', 'cavities', 'lesions', 'veseels']
+#    df = pd.DataFrame()
+#    for i,s in enumerate(l):
+#        print(ls[i])
+#        _,exact_df = mm.density_label(s, max_samples=200, plot=True)
+#        exact_df['class'] = ls[i]
+#        df = pd.concat([df, exact_df])
+##    
       
-    g = sns.PairGrid(df,vars=df.columns[:-1],hue='class')
-    g.map_upper(plt.scatter, alpha = 0.8)
-    g.map_lower(sns.kdeplot, cmap="Blues_d")
-    g.map_diag(sns.kdeplot, lw=2, legend=False);
-    
-    
+#    g = sns.PairGrid(df,vars=df.columns[:-2],hue='class')
+#    g.map_upper(plt.scatter)
+#    g.map_lower(sns.kdeplot, cmap="Blues_d")
+#    g.map_diag(sns.kdeplot, lw=2, legend=False);
+#    
+#    
 #    feats_l = [Region.MEAN]
 #    mm.set_regions_feats(feats_l)
 #    clean_feats = mm.multimodality_feats.dropna()
