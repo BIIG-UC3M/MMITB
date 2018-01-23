@@ -21,6 +21,8 @@ from matplotlib.lines import Line2D
 from six import iteritems
 from scipy import stats
 
+from utilities import indxs_neig
+
 import SimpleITK
 
 rng = np.random.RandomState(123)
@@ -72,7 +74,7 @@ def image_as_data(image_path):
 
     return data, len(data),K, data.shape[1] - 1
 
-def run_mv_model(data, K = 3, n_feats = 2,mus = None, mc_samples = 10000):
+def run_mv_model(data, K = 3, n_feats = 2,mus = None, mc_samples = 10000, jobs = 1):
     with pm.Model() as model:
         n_samples = len(data)
         tau = pm.Deterministic('tau', pm.floatX( tt.eye(n_feats)*10))
@@ -84,7 +86,7 @@ def run_mv_model(data, K = 3, n_feats = 2,mus = None, mc_samples = 10000):
         
     with model:
         step2 = pm.ElemwiseCategorical(vars=[category], values=range(K))
-        trace = sample(mc_samples, step2)
+        trace = sample(mc_samples, step2, n_jobs = jobs)
 
     pm.traceplot(trace, varnames = ['mus', 'pi', 'tau'])
     plt.title('mv model')
@@ -123,25 +125,75 @@ def run_normal_mv_model(data, K = 3, mus = None, mc_samples = 10000, jobs = 1):
     #   print (max(np.max(gr_stats) for gr_stats in pm.gelman_rubin(trace).values()))
     return model, mod, trace
 
+def logp_gmix(mu, ch, prior):
+    def logp_(value):
+        logps = tt.log(prior) + pm.MvNormal.dist(mu=mu,chol = ch).logp(value)
+        return logps
+    return logp_
+
+def get_prior(category):
+    r = []
+    for indx in range(1000):
+        neig_list = indxs_neig(indx)
+        r.append( np.sum(category[neig_list] == category[indx]) / len(neig_list))
+    return r
+
+def run_normal_mv_model_prior(data, K = 3, mus = None, mc_samples = 10000, jobs = 1):
+    n_samples,n_feats = data.shape
+    with pm.Model() as model:
+        
+        print n_samples,n_feats
+        packed_L = pm.LKJCholeskyCov('packed_L', n=n_feats, eta=2., sd_dist=pm.HalfCauchy.dist(2.5))        
+        L = pm.expand_packed_triangular(n_feats, packed_L)
+        sigma = pm.Deterministic('Sigma', L.dot(L.T))
+        
+        mus = 0. if mus is None else mus
+
+        #mus = pm.Normal('mus', mu = [[10,10], [55,55], [105,105], [155,155], [205,205]], sd = 10, shape=(K,n_feats))
+        mus = pm.Normal('mus', mu = mus, sd = 10., shape=(K,n_feats), testval=data.mean(axis=0))
+             
+        pi = Dirichlet('pi', a=pm.floatX( [1. for _ in range(K)] ), shape=K )
+        #TODO one pi per voxel
+        category = pm.Categorical('category', p=pi, shape = n_samples)
+        
+        #prior = pm.Deterministic('prior',pm.math.sqrt([0.25**2, 0.25**2, 0.25**2]) )
+        
+        xs = DensityDist('x', logp_gmix(mus[category],L , 1.0 ), observed=data)
+        #pm.NormalMixture('x', mu = )
+        
+    with model:
+        step2 = pm.ElemwiseCategorical(vars=[category], values=range(K))
+        trace = sample(mc_samples, step2, n_jobs = jobs)
+
+    pm.traceplot(trace, varnames = ['mus', 'pi', 'Sigma'])
+    plt.title('normal mv model priors')
+    
+    mod = stats.mode(trace['category'][int(mc_samples*0.75):])
+    #if chains > 1:
+    #   print (max(np.max(gr_stats) for gr_stats in pm.gelman_rubin(trace).values()))
+    return model, mod, trace
+
 if __name__ == "__main__":
     #data,C,n_samples,K, n_feats = make_random_latent_gaussian(plot= True, cov_mat = np.array([[0.1,0.001],[0.5,1.0]] ) )
-    data,C,n_samples,K, n_feats = make_random_latent_gaussian(plot= True, centers= [[-1,-1],[1,1],[-3,-3],[-2,-2],[4,4]], priors=[0.1, 0.3, 0.4, 0.1,0.1 ] )
+    data,C,n_samples,K, n_feats = make_random_latent_gaussian(plot= False, centers= [[-1,-1],[1,1],[-3,-3]], priors=[0.25, 0.25, 0.5 ], cov_mat= np.array([[1,0.25],[0.25,1]]) )
     data_fake  = data[:,-1:].T
     data_fake2 = data_fake+5
-    data_fake = data_fake + rng.uniform(low = -1, size = (len(data)))
-    data_fake2 = data_fake2 + rng.randn(len(data))
-    data = np.concatenate([data_fake.T, data_fake2.T, data[:,-1:]], axis = 1)
-    #data, n_samples, K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune_min.jpg')
-    #model,m, trace = run_mv_model(data[:,:-1], K, n_feats=n_feats, mus=100)
-    model,m, trace = run_normal_mv_model(data[:,:-1], K=K,mc_samples = 500000)
+    data_fake = data_fake + rng.randn(len(data))*0.8
+    data_fake2 = data_fake2 + rng.randn(len(data))*0.8
+    #data = np.concatenate([data_fake.T, data_fake2.T, data[:,-1:]], axis = 1)
+    data, n_samples, K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune_min.jpg')
+    #model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=50000, K=K)
+    #model,m, trace = run_mv_model(data[:,:-1], K, n_feats=n_feats, mc_samples=50000)
+    model,m, trace = run_normal_mv_model(data[:,:-1], K=K, mc_samples=50000)
     #data,n_samples,K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune.jpg')
     #ks = np.array([4,0,1,2,3])#TODO No ojo
     #ks[trace['category'][-1]]
     
     
     
-#    cmap = sns.cubehelix_palette(as_cmap=True)
-#    f, ax = plt.subplots()
-#    points = ax.scatter(data[:, 0], data[:, 1], c=mod[1][0]/1000., s=(mod[0][0]+1)*20, cmap=cmap, alpha = 0.5)
-#    f.colorbar(points)
+    
+    cmap = sns.cubehelix_palette(as_cmap=True)
+    f, ax = plt.subplots()
+    points = ax.scatter(data[:, 0], data[:, 1], c=m[1][0]/int(10000*0.75), s=(data[:,-1]+1)*20, cmap=cmap, alpha = 0.5)
+    f.colorbar(points)
     

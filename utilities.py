@@ -206,7 +206,7 @@ def indxs_neig(i, n = 1, n_cols = 4, n_rows = 4):
         col_offsets = col_offsets + [col_offset] if col_offset >= 0 and col_offset < n_cols else col_offsets
         
     out = [n_cols*row + col for row in row_offsets for col in col_offsets]
-    out.remove(i)
+    #out.remove(i)
     return out
     
     
