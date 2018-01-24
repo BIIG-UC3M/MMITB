@@ -21,7 +21,7 @@ from matplotlib.lines import Line2D
 from six import iteritems
 from scipy import stats
 
-from utilities import indxs_neig
+from utilities import indxs_neig,indxs_neigs
 
 import SimpleITK
 
@@ -133,16 +133,29 @@ def logp_gmix(mu, ch, prior):
 
 def get_prior(category):
     r = []
-    for indx in range(1000):
-        neig_list = indxs_neig(indx)
-        r.append( np.sum(category[neig_list] == category[indx]) / len(neig_list))
+    
+    for indx in range(73*74):
+        a = tt.vector()
+        neig_list = indxs_neig(indx, n_rows=73)
+        out = tt.eq(a,category[indx]) 
+        f = tt.function([a], out)
+        r.append( np.sum(f(neig_list) ) / len(neig_list))
     return r
+
+def get_prior2(category):
+    r = theano.tensor.zeros((73*74,1))
+    for indx in range(73*74):
+        print indx
+        neig_list = indxs_neig(indx, n_rows=73)
+        a = [tt.switch(tt.eq(category[indx], category[nei]), 1, 0) for nei in neig_list]
+        r = tt.set_subtensor(r[indx:] ,tt.sum(a)//len(neig_list) )
+    return r
+    
 
 def run_normal_mv_model_prior(data, K = 3, mus = None, mc_samples = 10000, jobs = 1):
     n_samples,n_feats = data.shape
     with pm.Model() as model:
         
-        print n_samples,n_feats
         packed_L = pm.LKJCholeskyCov('packed_L', n=n_feats, eta=2., sd_dist=pm.HalfCauchy.dist(2.5))        
         L = pm.expand_packed_triangular(n_feats, packed_L)
         sigma = pm.Deterministic('Sigma', L.dot(L.T))
@@ -155,17 +168,33 @@ def run_normal_mv_model_prior(data, K = 3, mus = None, mc_samples = 10000, jobs 
         pi = Dirichlet('pi', a=pm.floatX( [1. for _ in range(K)] ), shape=K )
         #TODO one pi per voxel
         category = pm.Categorical('category', p=pi, shape = n_samples)
+        #pm.Deterministic('pri', tt.as_tensor_variable(get_prior2(category)))
+
+        #prior = pm.Deterministic('prior',tt.stack( [tt.sum(tt.eq(category[i], category[indxs_neig(i, n_rows=73, n_cols=74)]))/8.0 for i in range(73*74) ] ))
+        
+        
+        #prior = pm.Deterministic('prior',tt.sum(tt.eq(category  , category[[j for j in range(8)]].reshape( (8,1) ) )))
+        aux = tt.ones(8000) * -1 #aquí un valor que no exista
+        to_fill = indxs_neigs(range(1000), n_cols=10, n_rows=100)
+        to_fill = to_fill[to_fill != -1]
+        #aux[to_fill] = category[to_fill]
+        aux2 = tt.set_subtensor(aux[to_fill],category[to_fill])
+#        indxs = to_fill != -1
+#        aux[indxs] = to_fill[indxs]
+        prior = pm.Deterministic('prior',tt.sum(tt.eq( aux2.reshape( (1000,8) ) , category.reshape( (1000,1)) ), axis = 1 ))
+        
+        
         
         #prior = pm.Deterministic('prior',pm.math.sqrt([0.25**2, 0.25**2, 0.25**2]) )
         
         xs = DensityDist('x', logp_gmix(mus[category],L , 1.0 ), observed=data)
-        #pm.NormalMixture('x', mu = )
+
         
     with model:
         step2 = pm.ElemwiseCategorical(vars=[category], values=range(K))
         trace = sample(mc_samples, step2, n_jobs = jobs)
 
-    pm.traceplot(trace, varnames = ['mus', 'pi', 'Sigma'])
+    pm.traceplot(trace, varnames = ['mus', 'pi', 'Sigma', 'prior'])
     plt.title('normal mv model priors')
     
     mod = stats.mode(trace['category'][int(mc_samples*0.75):])
@@ -181,10 +210,10 @@ if __name__ == "__main__":
     data_fake = data_fake + rng.randn(len(data))*0.8
     data_fake2 = data_fake2 + rng.randn(len(data))*0.8
     #data = np.concatenate([data_fake.T, data_fake2.T, data[:,-1:]], axis = 1)
-    data, n_samples, K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune_min.jpg')
-    #model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=50000, K=K)
+    #data, n_samples, K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune_n.jpg')
+    model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=100, K=K)
     #model,m, trace = run_mv_model(data[:,:-1], K, n_feats=n_feats, mc_samples=50000)
-    model,m, trace = run_normal_mv_model(data[:,:-1], K=K, mc_samples=50000)
+    #model,m, trace = run_normal_mv_model(data[:,:-1], K=K, mc_samples=50000)
     #data,n_samples,K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune.jpg')
     #ks = np.array([4,0,1,2,3])#TODO No ojo
     #ks[trace['category'][-1]]

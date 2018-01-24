@@ -194,8 +194,8 @@ def save_clf(obj, name ):
     _ = joblib.dump(obj, name, compress=9)
     
 def indxs_neig(i, n = 1, n_cols = 4, n_rows = 4):
-    i_max = n_cols*n_rows-1
-    n_row = i/n_rows
+    #i_max = n_cols*n_rows-1
+    n_row = i/n_cols
     n_col = i - n_cols*n_row
     row_offsets = []
     col_offsets = []
@@ -206,8 +206,20 @@ def indxs_neig(i, n = 1, n_cols = 4, n_rows = 4):
         col_offsets = col_offsets + [col_offset] if col_offset >= 0 and col_offset < n_cols else col_offsets
         
     out = [n_cols*row + col for row in row_offsets for col in col_offsets]
-    #out.remove(i)
+    if i in out:
+        out.remove(i)
     return out
+
+def indxs_neigs(i_vec, n = 1, n_cols = 4, n_rows = 4 ):
+    to_fill = np.zeros(len(i_vec)*8, dtype = np.int ) 
+    offset = 0
+    for i in i_vec:
+        out = [-1]*8
+        neigs =  indxs_neig(i, n = n, n_cols=n_cols, n_rows=n_rows)
+        out[0:len(neigs)] = neigs
+        to_fill[offset:offset+8] = out
+        offset+=8
+    return to_fill
     
     
 def neig_delta(m):
@@ -242,6 +254,8 @@ if __name__ == "__main__":
 #    images = glob.glob('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB7*/*/'+'/*/*t1*')
     #for im in images:
         #get_background(read_dicom(im))
+    indxs_neigs([12,13], n_rows=100, n_cols=10)    
+    indxs_neig(12, n_rows=100, n_cols=10)
     
     t1_mask = SimpleITK.ReadImage('/tmp/t1_mask.mhd')
     pet_mask = SimpleITK.ReadImage('/tmp/pet_mask.mhd')
