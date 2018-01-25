@@ -112,6 +112,7 @@ def run_normal_mv_model(data, K = 3, mus = None, mc_samples = 10000, jobs = 1):
         #TODO one pi per voxel
         category = pm.Categorical('category', p=pi, shape=n_samples)
         xs = pm.MvNormal('x', mu = mus[category], chol=L, observed = data)
+       
         
     with model:
         step2 = pm.ElemwiseCategorical(vars=[category], values=range(K))
@@ -127,33 +128,24 @@ def run_normal_mv_model(data, K = 3, mus = None, mc_samples = 10000, jobs = 1):
 
 def logp_gmix(mu, ch, prior):
     def logp_(value):
-        logps = tt.log(prior) + pm.MvNormal.dist(mu=mu,chol = ch).logp(value)
+        logps = tt.log(prior) + pm.MvNormal.dist(mu=mu,chol = ch).logp(value) #TODO: Performance. Esto genera las mimsas gaussians tantas veces como datos de cada categoria existan. TODO performance
         return logps
     return logp_
 
-def get_prior(category):
-    r = []
-    
-    for indx in range(73*74):
-        a = tt.vector()
-        neig_list = indxs_neig(indx, n_rows=73)
-        out = tt.eq(a,category[indx]) 
-        f = tt.function([a], out)
-        r.append( np.sum(f(neig_list) ) / len(neig_list))
-    return r
+def logp_gmix2(mu, ch, prior, category):
+    def logp_(value):
+        logps = pm.MvNormal.dist(mu=mu,chol = ch).logp(value)#TODO: Performance. Esto genera las mimsas gaussians tantas veces como datos de cada categoria existan. TODO performance
+        b = np.arange(1000, dtype = np.int)
+        a = tt.sum([tt.sum(logps[jj ]) for jj in range(3) ])
+        return a#logps
+    return logp_
 
-def get_prior2(category):
-    r = theano.tensor.zeros((73*74,1))
-    for indx in range(73*74):
-        print indx
-        neig_list = indxs_neig(indx, n_rows=73)
-        a = [tt.switch(tt.eq(category[indx], category[nei]), 1, 0) for nei in neig_list]
-        r = tt.set_subtensor(r[indx:] ,tt.sum(a)//len(neig_list) )
-    return r
-    
 
 def run_normal_mv_model_prior(data, K = 3, mus = None, mc_samples = 10000, jobs = 1):
-    n_samples,n_feats = data.shape
+#    n_samples,n_feats = data.shape
+#    to_fill = indxs_neigs(range(50*50), n_cols=50, n_rows=50)
+#    inds = np.where(to_fill != -1)[0]
+#    to_fill = to_fill[to_fill != -1]
     with pm.Model() as model:
         
         packed_L = pm.LKJCholeskyCov('packed_L', n=n_feats, eta=2., sd_dist=pm.HalfCauchy.dist(2.5))        
@@ -174,27 +166,23 @@ def run_normal_mv_model_prior(data, K = 3, mus = None, mc_samples = 10000, jobs 
         
         
         #prior = pm.Deterministic('prior',tt.sum(tt.eq(category  , category[[j for j in range(8)]].reshape( (8,1) ) )))
-        aux = tt.ones(8000) * -1 #aquí un valor que no exista
-        to_fill = indxs_neigs(range(1000), n_cols=10, n_rows=100)
-        to_fill = to_fill[to_fill != -1]
-        #aux[to_fill] = category[to_fill]
-        aux2 = tt.set_subtensor(aux[to_fill],category[to_fill])
-#        indxs = to_fill != -1
-#        aux[indxs] = to_fill[indxs]
-        prior = pm.Deterministic('prior',tt.sum(tt.eq( aux2.reshape( (1000,8) ) , category.reshape( (1000,1)) ), axis = 1 ))
+#        aux = tt.ones(50*50*8) * -69 #aquí un valor que no exista
+#        aux2 = tt.set_subtensor(aux[inds],category[to_fill])
+#        
+#        prior = pm.Deterministic('prior',  pm.floatX( tt.sum(tt.eq( aux2.reshape( (50*50,8) ) , category.reshape( (50*50,1)) ), axis = 1 ))/9.0)
+#        aux3 = tt.as_tensor_variable(pm.floatX( np.random.rand(2500)  ) )
+#        prior2 = pm.Deterministic('prior2', aux3 )
         
-        
-        
-        #prior = pm.Deterministic('prior',pm.math.sqrt([0.25**2, 0.25**2, 0.25**2]) )
-        
-        xs = DensityDist('x', logp_gmix(mus[category],L , 1.0 ), observed=data)
+        xs = DensityDist('x', logp_gmix2(mus[category],L , 1.0, category ), observed=data)
 
         
     with model:
         step2 = pm.ElemwiseCategorical(vars=[category], values=range(K))
         trace = sample(mc_samples, step2, n_jobs = jobs)
+        
+        
 
-    pm.traceplot(trace, varnames = ['mus', 'pi', 'Sigma', 'prior'])
+    pm.traceplot(trace, varnames = ['mus', 'pi', 'Sigma'])
     plt.title('normal mv model priors')
     
     mod = stats.mode(trace['category'][int(mc_samples*0.75):])
@@ -204,16 +192,17 @@ def run_normal_mv_model_prior(data, K = 3, mus = None, mc_samples = 10000, jobs 
 
 if __name__ == "__main__":
     #data,C,n_samples,K, n_feats = make_random_latent_gaussian(plot= True, cov_mat = np.array([[0.1,0.001],[0.5,1.0]] ) )
-    data,C,n_samples,K, n_feats = make_random_latent_gaussian(plot= False, centers= [[-1,-1],[1,1],[-3,-3]], priors=[0.25, 0.25, 0.5 ], cov_mat= np.array([[1,0.25],[0.25,1]]) )
+    ms = [[-1,-1],[1,1],[-3,-3]]; priors = [0.25, 0.25, 0.5 ]; cov = np.array([[1,0.25],[0.25,1]])
+    data,C,n_samples,K, n_feats = make_random_latent_gaussian(plot= False, centers= ms, priors=priors, cov_mat=cov , samples= 1000 )
     data_fake  = data[:,-1:].T
     data_fake2 = data_fake+5
     data_fake = data_fake + rng.randn(len(data))*0.8
     data_fake2 = data_fake2 + rng.randn(len(data))*0.8
     #data = np.concatenate([data_fake.T, data_fake2.T, data[:,-1:]], axis = 1)
     #data, n_samples, K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune_n.jpg')
-    model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=100, K=K)
+    model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=5000, K=K)
     #model,m, trace = run_mv_model(data[:,:-1], K, n_feats=n_feats, mc_samples=50000)
-    #model,m, trace = run_normal_mv_model(data[:,:-1], K=K, mc_samples=50000)
+    #model,m, trace = run_normal_mv_model(data[:,:-1], K=K, mc_samples=5000)
     #data,n_samples,K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune.jpg')
     #ks = np.array([4,0,1,2,3])#TODO No ojo
     #ks[trace['category'][-1]]
