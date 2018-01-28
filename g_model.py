@@ -261,7 +261,7 @@ if __name__ == "__main__":
     #data = np.concatenate([data_fake.T, data_fake2.T, data[:,-1:]], axis = 1)
     data, n_samples, K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune_min_n.jpg')
     #model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=5000, K=K)
-    model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=500, K=K, n_cols = 40, n_rows = 30, neigs=3)
+    model,m, trace = run_normal_mv_model_prior_ADVI(data[:,:-1], mc_samples=50000, K=K, n_cols = 40, n_rows = 30, neigs=3)
     #model,m, trace = run_mv_model(data[:,:-1], K, n_feats=n_feats, mc_samples=50000)
     #model,m, trace = run_normal_mv_model(data[:,:-1], K=K, mc_samples=5000)
     #data,n_samples,K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune.jpg')
