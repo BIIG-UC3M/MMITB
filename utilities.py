@@ -211,14 +211,15 @@ def indxs_neig(i, n = 1, n_cols = 4, n_rows = 4):
     return out
 
 def indxs_neigs(i_vec, n = 1, n_cols = 4, n_rows = 4 ):
-    to_fill = np.zeros(len(i_vec)*8, dtype = np.int ) 
+    max_neigs = 4*n*(n+1) ##(2*n+1)^2-1
+    to_fill = np.zeros(len(i_vec)*max_neigs, dtype = np.int ) 
     offset = 0
     for i in i_vec:
-        out = [-1]*8
+        out = [-1]*max_neigs
         neigs =  indxs_neig(i, n = n, n_cols=n_cols, n_rows=n_rows)
         out[0:len(neigs)] = neigs
-        to_fill[offset:offset+8] = out
-        offset+=8
+        to_fill[offset:offset+max_neigs ] = out
+        offset+=max_neigs
     return to_fill
     
     
