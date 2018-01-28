@@ -173,7 +173,7 @@ def run_normal_mv_model_prior(data, K = 3, mus = None, mc_samples = 10000, jobs 
         #prior = pm.Deterministic('prior',tt.sum(tt.eq(category  , category[[j for j in range(8)]].reshape( (8,1) ) )))
         
         aux2 = tt.set_subtensor(aux[inds],category[to_fill])
-        prior = pm.Deterministic('prior',pm.floatX( tt.sum(tt.eq( aux2.reshape( (n_samples,max_neigs ) ), category.reshape( (n_samples,1)) ), axis = 1 ))/(5.0)+1.0  )
+        prior = pm.Deterministic('prior',pm.floatX( tt.sum(tt.eq( aux2.reshape( (n_samples,max_neigs ) ), category.reshape( (n_samples,1)) ), axis = 1 ))/(40.0)+1.0  )
         
         
        # aux3 = tt.as_tensor_variable(pm.floatX([1,1,2,2,2,2,2,2,2,2]*100 ))
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     #data = np.concatenate([data_fake.T, data_fake2.T, data[:,-1:]], axis = 1)
     data, n_samples, K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune_min_n.jpg')
     #model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=5000, K=K)
-    model,m, trace = run_normal_mv_model_prior(data[:,:-2], mc_samples=5000, K=K, n_cols = 40, n_rows = 30, neigs=3)
+    model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=500, K=K, n_cols = 40, n_rows = 30, neigs=3)
     #model,m, trace = run_mv_model(data[:,:-1], K, n_feats=n_feats, mc_samples=50000)
     #model,m, trace = run_normal_mv_model(data[:,:-1], K=K, mc_samples=5000)
     #data,n_samples,K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune.jpg')
