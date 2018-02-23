@@ -14,11 +14,17 @@ import os
 import pandas as pd
 from sklearn.externals import joblib
 import glob
+import subprocess
 
 from Filters import SRM, Keep_N_Objects
 from UsefullFunctions import AttrDict
 
 
+def calling_external(exter_fun_path,inputs):
+    for i in inputs:
+        exter_fun_path=exter_fun_path+' '+str(i)
+    process = subprocess.Popen(exter_fun_path, shell=True)
+    process.wait()  
 
 
 def read_image(image):
@@ -234,8 +240,14 @@ def neig_delta(m):
     
     return out
     
-
-    
+def equal_and_save(path_original, path_labels,path_out):
+    ori = read_image(path_original)
+    labels = read_image(path_labels)
+    labels.CopyInformation(ori)
+    c_path_out = os.path.join(path_out, path_labels.split('/')[-2]+'.mhd')
+    c_path_out_m = os.path.join(path_out, path_labels.split('/')[-2]+'_median.mhd')
+    SimpleITK.WriteImage(labels, c_path_out)
+    SimpleITK.WriteImage(SimpleITK.Median(labels,[2,2,2]), c_path_out_m)    
          
         
 
@@ -255,48 +267,55 @@ if __name__ == "__main__":
 #    images = glob.glob('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB7*/*/'+'/*/*t1*')
     #for im in images:
         #get_background(read_dicom(im))
-    indxs_neigs([12,13], n_rows=100, n_cols=10)    
-    indxs_neig(12, n_rows=100, n_cols=10)
-    
-    t1_mask = SimpleITK.ReadImage('/tmp/t1_mask.mhd')
-    pet_mask = SimpleITK.ReadImage('/tmp/pet_mask.mhd')
-    a = merge_label_maps([t1_mask, pet_mask])
+#    indxs_neigs([12,13], n_rows=100, n_cols=10)    
+#    indxs_neig(12, n_rows=100, n_cols=10)
+#    
+#    t1_mask = SimpleITK.ReadImage('/tmp/t1_mask.mhd')
+#    pet_mask = SimpleITK.ReadImage('/tmp/pet_mask.mhd')
+#    a = merge_label_maps([t1_mask, pet_mask])
+#        
+#    t1 = read_dicom('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034')
+#    umap = read_dicom('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007')
+#    pet = read_dicom('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018')
+#    iverted_mask = multi_label_mask(umap, [224,1000])
+#    iverted_mask2 = SimpleITK.InvertIntensity(get_background(t1, q=25), maximum=1 )
+#    SimpleITK.WriteImage(iverted_mask, '/tmp/inverted_mask_umap.mhd')
+#    SimpleITK.WriteImage(iverted_mask2, '/tmp/inverted_mask_t1.mhd')
+#    
+#    iverted_mask = resamplig(t1, iverted_mask, interpolator=SimpleITK.sitkNearestNeighbor )
+#    no_bck_image = SimpleITK.Mask(t1, iverted_mask*iverted_mask2)
+#    SimpleITK.WriteImage(no_bck_image, '/tmp/no_bck_img.mhd')
+#    #t1_eg_discc = srm(no_bck_image, q=200 ,fully_connected=False, smooth=True)
+#    #SimpleITK.WriteImage(t1_eg_discc, '/tmp/t1_seg_dis.mhd')
+#    #itk_slic_img = SimpleITK.Median(itkImageToSLIC(no_bck_image, n_seg=50000, compactness = 0.00001), [1,1,1])
+#    #SimpleITK.WriteImage(itk_slic_img, '/tmp/itkslicMedian.mhd')
+#    #SimpleITK.WriteImage(SimpleITK.Mask(itk_slic_img, iverted_mask), '/tmp/itkslicMedian_no_bck.mhd')
+#    
+#    mask_pet = resamplig(pet, iverted_mask*iverted_mask2, interpolator = SimpleITK.sitkNearestNeighbor)
+#    for i in range(172):
+#        for j in range(172):
+#            mask_pet.SetPixel(i,j,0,0)
+#            mask_pet.SetPixel(i,j,126,0)
+#    masked_pet = SimpleITK.Mask(pet,mask_pet )
+#    
+#    srm_pet = srm(masked_pet, q = 200)
+#    SimpleITK.WriteImage(SimpleITK.Mask(srm_pet, mask_pet), '/tmp/srm_pet200.mhd')
+#    slic_pet = itkImageToSLIC(masked_pet, n_seg = 10000, compactness=0.0000001 )
+#    SimpleITK.WriteImage(SimpleITK.Mask(slic_pet, mask_pet), '/tmp/slic_pet.mhd')
+#    srm_smothed_image = srm(no_bck_image, q=50, smooth=[1,1,1])
+#    SimpleITK.WriteImage(SimpleITK.Mask(itkImageToSLIC( SimpleITK.Median(no_bck_image,[1,1,1]), n_seg=2000 ),iverted_mask*iverted_mask2 ),'/tmp/img_slic.mhd' )
+#    SimpleITK.WriteImage(srm_smothed_image, '/tmp/srm_smth.mhd')
+#    srm_pet_resampled = resamplig(t1, srm_pet, interpolator=SimpleITK.sitkNearestNeighbor)
+#    SimpleITK.WriteImage(srm_pet_resampled, '/tmp/srm_pet_resampled.mhd')
+#    SimpleITK.WriteImage(srm_smothed_image*srm_pet_resampled, '/tmp/srm_t1_pet.mhd')
+#    SimpleITK.WriteImage( SimpleITK.Mask( itkImageToSLIC( srm_smothed_image, n_seg=500, compactness=0.001 ),iverted_mask*iverted_mask2 ), '/tmp/slic_srm_umap.mhd')
+#    #SimpleITK.WriteImage( SimpleITK.Mask( srm(no_bck_image, q=1600, smooth= [1,1,1]),iverted_mask ), '/tmp/slic_srm3.mhd')
         
-    t1 = read_dicom('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034')
-    umap = read_dicom('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007')
-    pet = read_dicom('/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018')
-    iverted_mask = multi_label_mask(umap, [224,1000])
-    iverted_mask2 = SimpleITK.InvertIntensity(get_background(t1, q=25), maximum=1 )
-    SimpleITK.WriteImage(iverted_mask, '/tmp/inverted_mask_umap.mhd')
-    SimpleITK.WriteImage(iverted_mask2, '/tmp/inverted_mask_t1.mhd')
-    
-    iverted_mask = resamplig(t1, iverted_mask, interpolator=SimpleITK.sitkNearestNeighbor )
-    no_bck_image = SimpleITK.Mask(t1, iverted_mask*iverted_mask2)
-    SimpleITK.WriteImage(no_bck_image, '/tmp/no_bck_img.mhd')
-    #t1_eg_discc = srm(no_bck_image, q=200 ,fully_connected=False, smooth=True)
-    #SimpleITK.WriteImage(t1_eg_discc, '/tmp/t1_seg_dis.mhd')
-    #itk_slic_img = SimpleITK.Median(itkImageToSLIC(no_bck_image, n_seg=50000, compactness = 0.00001), [1,1,1])
-    #SimpleITK.WriteImage(itk_slic_img, '/tmp/itkslicMedian.mhd')
-    #SimpleITK.WriteImage(SimpleITK.Mask(itk_slic_img, iverted_mask), '/tmp/itkslicMedian_no_bck.mhd')
-    
-    mask_pet = resamplig(pet, iverted_mask*iverted_mask2, interpolator = SimpleITK.sitkNearestNeighbor)
-    for i in range(172):
-        for j in range(172):
-            mask_pet.SetPixel(i,j,0,0)
-            mask_pet.SetPixel(i,j,126,0)
-    masked_pet = SimpleITK.Mask(pet,mask_pet )
-    
-    srm_pet = srm(masked_pet, q = 200)
-    SimpleITK.WriteImage(SimpleITK.Mask(srm_pet, mask_pet), '/tmp/srm_pet200.mhd')
-    slic_pet = itkImageToSLIC(masked_pet, n_seg = 10000, compactness=0.0000001 )
-    SimpleITK.WriteImage(SimpleITK.Mask(slic_pet, mask_pet), '/tmp/slic_pet.mhd')
-    srm_smothed_image = srm(no_bck_image, q=50, smooth=[1,1,1])
-    SimpleITK.WriteImage(SimpleITK.Mask(itkImageToSLIC( SimpleITK.Median(no_bck_image,[1,1,1]), n_seg=2000 ),iverted_mask*iverted_mask2 ),'/tmp/img_slic.mhd' )
-    SimpleITK.WriteImage(srm_smothed_image, '/tmp/srm_smth.mhd')
-    srm_pet_resampled = resamplig(t1, srm_pet, interpolator=SimpleITK.sitkNearestNeighbor)
-    SimpleITK.WriteImage(srm_pet_resampled, '/tmp/srm_pet_resampled.mhd')
-    SimpleITK.WriteImage(srm_smothed_image*srm_pet_resampled, '/tmp/srm_t1_pet.mhd')
-    SimpleITK.WriteImage( SimpleITK.Mask( itkImageToSLIC( srm_smothed_image, n_seg=500, compactness=0.001 ),iverted_mask*iverted_mask2 ), '/tmp/slic_srm_umap.mhd')
-    #SimpleITK.WriteImage( SimpleITK.Mask( srm(no_bck_image, q=1600, smooth= [1,1,1]),iverted_mask ), '/tmp/slic_srm3.mhd')
+    images = glob.glob('/media/pmacias/DATA2/amunoz/NUS_R4/*.mhd')
+    slc = 32
+    #for im in images:
+        #n = str(slc)+'_'+im.split('/')[-1].split('.')[0]+'.tif'
+        #im_a = SimpleITK.ReadImage(im)
+        #SimpleITK.WriteImage(im_a[:,:,slc], '/media/pmacias/DATA2/amunoz/expTIF32/'+n)
     
     

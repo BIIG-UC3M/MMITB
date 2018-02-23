@@ -15,9 +15,12 @@ from abc import ABCMeta, abstractmethod
 import inspect
 from sklearn import mixture
 from sklearn.externals import joblib
+import os
 
 import seaborn as sns
 import matplotlib.pyplot as plt
+import itertools
+
 
 
 
@@ -142,6 +145,7 @@ class ModalityImage():
         self.label_mask = self.resample_image_to_modality(labels_mask)
 
         stats_filter = SimpleITK.LabelIntensityStatisticsImageFilter()
+       
         FEATS = {Region.SIZE:stats_filter.GetPhysicalSize,
                  Region.ELONGATION:stats_filter.GetElongation,
                  Region.SPHERICAL_DIAMETER:stats_filter.GetEquivalentSphericalPerimeter,
@@ -167,7 +171,7 @@ class ModalityImage():
     
     def get_voxels_label(self, label_mask, label):
         if self.label_mask is not label_mask:
-            #print (self.short_id[self.image_modality],"label_mask is", self.label_mask, 'change by ',label_mask ) 
+            #print (self.short_id[self.image_modality],"label_mask is", shape_stats  = SimpleITK.LabelShapeStatisticsImageFilterself.label_mask, 'change by ',label_mask ) 
             self.label_mask = label_mask
             self.label_mask_array = SimpleITK.GetArrayFromImage(self.label_mask)
             self.resample_image = resamplig(self.label_mask, self.itk_image, interpolator = SimpleITK.sitkBSpline)
@@ -239,7 +243,16 @@ class MultiModalityImage():
         
         
     def set_regions_feats(self, features = [Region.MEAN]):
+        pos = self.__get_regions_postions__()
         self.multimodality_feats = pd.concat([ modality_img.get_features(self.label_mask_image,features) for modality_img in self.modalities_imgs] , axis=1)
+        self.multimodality_feats['x'],self.multimodality_feats['y'],self.multimodality_feats['z'] = np.array(pos).T
+        
+    def __get_regions_postions__(self):
+        ##Careful!!! the label_mask_image change for computational reasons.
+        ##Labels could change
+        shape_stats  = SimpleITK.LabelShapeStatisticsImageFilter()
+        shape_stats.Execute(self.label_mask_image)
+        return [list(shape_stats.GetCentroid(label)) for label in shape_stats.GetLabels()]
         
     def density_label(self, labels, plot = True, max_samples = 2000):
         df = pd.DataFrame()
@@ -384,11 +397,11 @@ class MultiModalityImage():
         
     
     def mixture_map(self, model = SklearnModel(mixture.BayesianGaussianMixture(n_components = 4, max_iter = 3000)),
-                    save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,None), return_map = False  ):
+                    save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,None), use_feats = None, return_map = False  ):
         if not isinstance(model, ClusterModel):
             print('Incorrect Model. Must be a ClusterMode Instance')
             return None
-        clean_feats = self.multimodality_feats.dropna()
+        clean_feats = self.multimodality_feats.dropna() if use_feats is None else self.multimodality_feats[use_feats].dropna()
         model.fit(clean_feats)
         y = model.predict(clean_feats)
         f = {clean_feats.index.values[i]:y[i]+1 for i in range(len(y))}
@@ -399,32 +412,251 @@ class MultiModalityImage():
         return mix_map,model if return_map else model
             
 
-#im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
-#mm = MultiModalityImage(im_d, labels_mask_image=None)  
-##mm.set_regions_feats([Region.MEAN])
-#mm.add_modality_image({ModalityImage.THO_MRAC_PET_15_MIN_LIST_legend_outAC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018'})
-#mm.add_modality_image({ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007'})
-##pet_mask = mm.get_pet_mask()
-##SimpleITK.WriteImage(pet_mask, '/tmp/pet_mask_test.mhd')
-#mask = mm.get_labels_mask()g.add_legend(fontsize=10, bbox_to_anchor=(0.9, 0.5, 0, 0))
-#SimpleITK.WriteImage(mask, '/tmp/mask_test5.mhd')
 
-#mm.mixture_map()
 
-min_clus = 2
-max_clus = 30 
-K = [3,4,5,7,10,15,25,40,60,100]      
+IMGS_PATH = '/media/pmacias/DATA2/amunoz/NUS_DATA_2016/'
+
+
+MMIS = [
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB706/20131121/102152_812000/t1_vibe_tra_bh_fatsat_exsp_0037' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB706/20131121/102152_812000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB706/20131121/102152_812000/_Tho_MRAC_PET_15_min_list_AC_Images_0020',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB706/20131121/102152_812000/t1_vibe_tra_bh_fatsat_exsp_0017',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB706/20131121/102152_812000/t2_hasteirm_tra_mbh_exsp_0018',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB706/20131121/102152_812000/t2_haste_cor_bh_spair_exsp_0002'},
+        
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB706/20131203/110408_515000/Tho_t2_spc_cor_pace_0014',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB706/20131203/110408_515000/t2_hasteirm_tra_mbh_exsp_0017',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB706/20131203/110408_515000/t2_haste_cor_bh_spair_exsp_0002'},
+         
+         
+         
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB708/20140925/145452_125000/t1_vibe_tra_bh_fatsat_exsp_0036' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB708/20140925/145452_125000/Tho_MRAC_PET_15_min_list_in_UMAP_0009',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB708/20140925/145452_125000/_Tho_MRAC_PET_15_min_list_AC_Images_0016',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB708/20140925/145452_125000/t1_vibe_tra_bh_fatsat_exsp_0021',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB708/20140925/145452_125000/t2_spc_cor_pace_0018',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB708/20140925/145452_125000/t2_hasteirm_tra_mbh_exsp_0020',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB708/20140925/145452_125000/t2_haste_cor_bh_spair_exsp_0004'},
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB708/20141002/150830_593000/t1_vibe_tra_bh_fatsat_exsp_0036' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB708/20141002/150830_593000/Tho_MRAC_PET_15_min_list_in_UMAP_0009',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB708/20141002/150830_593000/_Tho_MRAC_PET_15_min_list_AC_Images_0020',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB708/20141002/150830_593000/t1_vibe_tra_bh_fatsat_exsp_0021',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB708/20141002/150830_593000/Tho_t2_spc_cor_pace_0016',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB708/20141002/150830_593000/t2_hasteirm_tra_mbh_exsp_0018',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB708/20141002/150830_593000/t2_haste_cor_bh_spair_exsp_0004'},
+         
+         
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB709/20140926/145911_859000/Tho_t1_vibe_tra_bh_fatsat_exsp_0016' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB709/20140926/145911_859000/Tho_MRAC_PET_15_min_list_in_UMAP_0013',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB709/20140926/145911_859000/_Tho_MRAC_PET_15_min_list_AC_Images_0025',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB709/20140926/145911_859000/t1_vibe_tra_bh_fatsat_exsp_0036',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB709/20140926/145911_859000/Tho_t2_spc_cor_pace_0015',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB709/20140926/145911_859000/t2_hasteirm_tra_mbh_exsp_0023',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB709/20140926/145911_859000/t2_haste_cor_bh_spair_exsp_0004'},  
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB709/20141003/112659_187000/t1_vibe_tra_bh_fatsat_exsp_0034' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB709/20141003/112659_187000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB709/20141003/112659_187000/_Tho_MRAC_PET_15_min_list_AC_Images_0017',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB709/20141003/112659_187000/t1_vibe_tra_bh_fatsat_exsp_0019',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB709/20141003/112659_187000/Tho_t2_spc_cor_pace_0014',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB709/20141003/112659_187000/t2_hasteirm_tra_mbh_exsp_0018',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB709/20141003/112659_187000/t2_haste_cor_bh_spair_exsp_0002'},   
+         
+         
+         
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB710/20150116/105242_031000/t1_vibe_tra_bh_fatsat_exsp_0137' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB710/20150116/105242_031000/Tho_MRAC_PET_15_min_list_in_UMAP_0110',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB710/20150116/105242_031000/_Tho_MRAC_PET_15_min_list_AC_Images_0119',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB710/20150116/105242_031000/t1_vibe_tra_bh_fatsat_exsp_0122',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB710/20150116/105242_031000/Tho_t2_spc_cor_pace_0118',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB710/20150116/105242_031000/t2_hasteirm_tra_mbh_exsp_0120',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB710/20150116/105242_031000/t2_haste_cor_bh_spair_exsp_0105'},
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB710/20150325/104549_656000/t1_vibe_tra_bh_fatsat_exsp_0034' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB710/20150325/104549_656000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB710/20150325/104549_656000/_Tho_MRAC_PET_15_min_list_AC_Images_0014',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB710/20150325/104549_656000/t1_vibe_tra_bh_fatsat_exsp_0019',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB710/20150325/104549_656000/Tho_t2_spc_cor_pace_0016',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB710/20150325/104549_656000/t2_hasteirm_tra_mbh_exsp_0018',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB710/20150325/104549_656000/t2_haste_cor_bh_spair_exsp_0002'},  
+         
+         
+         
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB712/20150304/105103_015000/t1_vibe_tra_bh_fatsat_exsp_0035' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB712/20150304/105103_015000/Tho_MRAC_PET_15_min_list_in_UMAP_0008',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB712/20150304/105103_015000/_Tho_MRAC_PET_15_min_list_AC_Images_0018',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB712/20150304/105103_015000/t1_vibe_tra_bh_fatsat_exsp_0020',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB712/20150304/105103_015000/Tho_t2_spc_cor_pace_0015',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB712/20150304/105103_015000/t2_hasteirm_tra_mbh_exsp_0019',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB712/20150304/105103_015000/t2_haste_cor_bh_spair_exsp_0003'}, 
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB712/20150715/125021_359000/t1_vibe_tra_bh_fatsat_exsp_0040' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB712/20150715/125021_359000/Tho_MRAC_PET_15_min_list_in_UMAP_0009',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB712/20150715/125021_359000/_Tho_MRAC_PET_15_min_list_AC_Images_0017',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB712/20150715/125021_359000/t1_vibe_tra_bh_fatsat_exsp_0022',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB712/20150715/125021_359000/Tho_t2_spc_cor_pace_0018',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB712/20150715/125021_359000/t2_hasteirm_tra_mbh_exsp_0021',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB712/20150715/125021_359000/t2_haste_cor_bh_spair_exsp_0004'},
+         
+         
+         
+         
+        
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB717/20150511/121743_406000/Tho_t1_vibe_tra_bh_fatsat_exsp_0019' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB717/20150511/121743_406000/Tho_MRAC_PET_30_min_list_in_UMAP_0007',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB717/20150511/121743_406000/_Tho_MRAC_PET_30_min_list_AC_Images_0022',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB717/20150511/121743_406000/Tho_t1_vibe_tra_bh_fatsat_exsp_0017',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB717/20150511/121743_406000/Tho_t2_spc_cor_pace_0009',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB717/20150511/121743_406000/Tho_t2_hasteirm_tra_mbh_exsp_0010',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB717/20150511/121743_406000/t2_haste_cor_bh_spair_exsp_0002'},  
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB717/20150703/105242_671000/t1_vibe_tra_bh_fatsat_exsp_0034' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB717/20150703/105242_671000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB717/20150703/105242_671000/_Tho_MRAC_PET_15_min_list_AC_Images_0014',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB717/20150703/105242_671000/t1_vibe_tra_bh_fatsat_exsp_0019',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB717/20150703/105242_671000/Tho_t2_spc_cor_pace_0016',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB717/20150703/105242_671000/t2_hasteirm_tra_mbh_exsp_0018',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB717/20150703/105242_671000/t2_haste_cor_bh_spair_exsp_0002'},   
+         
+         
+         
+         
+         
+        {ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB718/20150618/110422_984000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB718/20150618/110422_984000/_Tho_MRAC_PET_15_min_list_AC_Images_0017',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB718/20150618/110422_984000/Tho_t2_spc_cor_pace_0015',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB718/20150618/110422_984000/t2_hasteirm_tra_mbh_exsp_0018',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB718/20150618/110422_984000/t2_haste_cor_bh_spair_exsp_0020'},  
+         
+        {ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB718/20150831/105257_421000/Tho_MRAC_PET_15_min_list_in_UMAP_0008',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB718/20150831/105257_421000/_Tho_MRAC_PET_15_min_list_AC_Images_0017',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB718/20150831/105257_421000/Tho_t2_spc_cor_pace_0020',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB718/20150831/105257_421000/t2_hasteirm_tra_mbh_exsp_0018',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB718/20150831/105257_421000/t2_haste_cor_bh_spair_exsp_0003'}, 
+         
+         
+         
+         
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB721/20150825/125625_531000/t1_vibe_tra_bh_fatsat_exsp_0035' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB721/20150825/125625_531000/Tho_MRAC_PET_15_min_list_in_UMAP_0008',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB721/20150825/125625_531000/_Tho_MRAC_PET_15_min_list_AC_Images_0015',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB721/20150825/125625_531000/t1_vibe_tra_bh_fatsat_exsp_0020',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB721/20150825/125625_531000/Tho_t2_spc_cor_pace_0017',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB721/20150825/125625_531000/t2_hasteirm_tra_mbh_exsp_0019',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB721/20150825/125625_531000/t2_haste_cor_bh_spair_exsp_0003'},      
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB721/20150928/120817_843000/t1_vibe_tra_bh_fatsat_exsp_0015' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB721/20150928/120817_843000/Tho_MRAC_PET_30_min_list_in_UMAP_0007',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB721/20150928/120817_843000/_Tho_MRAC_PET_30_min_list_AC_Images_0019',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB721/20150928/120817_843000/t1_vibe_tra_bh_fatsat_exsp_0015',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB721/20150928/120817_843000/Tho_t2_spc_cor_pace_0012',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB721/20150928/120817_843000/t2_hasteirm_tra_mbh_exsp_0014',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB721/20150928/120817_843000/t2_haste_cor_bh_spair_exsp_0002'},     
+         
+         
+         
+         
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB724/20160621/114146_843000/t1_vibe_tra_bh_fatsat_exsp_0040' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB724/20160621/114146_843000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB724/20160621/114146_843000/_Tho_MRAC_PET_15_min_list_AC_Images_0018',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB724/20160621/114146_843000/t1_vibe_tra_bh_fatsat_exsp_0022',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB724/20160621/114146_843000/Tho_t2_spc_cor_pace_0016',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB724/20160621/114146_843000/t2_hasteirm_tra_mbh_exsp_0020',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB724/20160621/114146_843000/t2_haste_cor_bh_spair_exsp_0002'},    
+         
+        {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:IMGS_PATH+'/PLTB724/20161207/113300_421000/t1_vibe_tra_bh_fatsat_exsp_0037' ,
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:IMGS_PATH+'/PLTB724/20161207/113300_421000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
+        ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:IMGS_PATH+'/PLTB724/20161207/113300_421000/_Tho_MRAC_PET_15_min_list_AC_Images_0015',
+        ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:IMGS_PATH+'/PLTB724/20161207/113300_421000/t1_vibe_tra_bh_fatsat_exsp_0022',
+        ModalityImage.THO_T2_SPC_COR_PACE:IMGS_PATH+'/PLTB724/20161207/113300_421000/Tho_t2_spc_cor_pace_0016',
+        ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:IMGS_PATH+'/PLTB724/20161207/113300_421000/t2_hasteirm_tra_mbh_exsp_0021',
+        ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:IMGS_PATH+'/PLTB724/20161207/113300_421000/t2_haste_cor_bh_spair_exsp_0002'},
+          ]
+
+
+
+COMBOS = [['PET_Mean', 'T2_SPC_PACE_Mean', 'T2_HASTE_SPAIR_Mean', 'x'],
+          ['PET_Mean','T2_SPC_PACE_Mean','T2_HASTE_SPAIR_Mean','T1_VIBE_Mean','x','z'],
+          ['PET_Mean','T2_SPC_PACE_Mean','T2_HASTE_SPAIR_Mean','T1_VIVE_C_Mean','x','y','z'] ]
+
+########GET COMBOS###############
+#        res_path = '/media/pmacias/DATA2/amunoz/NUS_R4/'
+#        fs = list(mm.multimodality_feats.columns)
+#        fs.remove('MU_MAP_Mean',idi)
+#        a =  [ list(itertools.combinations(fs,i)) for i in range(1,len(fs)) ]
+#        feats_combos =  []
+#        for t in a:
+#            for tup in t:
+#                feats_combos.append(list(tup))
+#        
+#        combs = len(feats_combos)
+        
+#######################################3
+        
+        
 if __name__ == "__main__":
-    im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
-    im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' ,
-            ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
-            ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018',
-            ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019',
-            ModalityImage.THO_T2_SPC_COR_PACE:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_t2_spc_cor_pace_0014',
-            ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_hasteirm_tra_mbh_exsp_0017',
-            ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_haste_cor_bh_spair_exsp_0002'
-            }
-#    mm = MultiModalityImage(im_d, labels_mask_image='/tmp/label_mask.mhd')
+    RES_PATH = '/media/pmacias/DATA2/amunoz/NUS_R7/'
+    df = []
+    #im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' }
+#    im_d = {ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0034' ,
+#            ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_MRAC_PET_15_min_list_in_UMAP_0007',
+#            ModalityImage.THO_MRAC_PET_15_MIN_LIST_AC_IMAGES:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/_Tho_MRAC_PET_15_min_list_AC_Images_0018',
+#            ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_PRECONT:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t1_vibe_tra_bh_fatsat_exsp_0019',
+#            ModalityImage.THO_T2_SPC_COR_PACE:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/Tho_t2_spc_cor_pace_0014',
+#            ModalityImage.T2_HASTEIRM_TRA_MBH_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_hasteirm_tra_mbh_exsp_0017',
+#            ModalityImage.T2_HASTE_COR_BH_SPAIR_EXSP:'/media/pmacias/DATA2/amunoz/NUS_DATA_2016/PLTB706/20131203/110408_515000/t2_haste_cor_bh_spair_exsp_0002'
+#            }
+    for mul_im in MMIS:
+        study_fields = mul_im[ModalityImage.THO_MRAC_PET_15_MIN_LIST_IN_UMAP].split('/')
+        subject = study_fields[7]
+        date = study_fields[8]
+        idi = subject+'_'+date
+        PATH_IDI = os.path.join(RES_PATH,idi)
+        if not os.path.exists(PATH_IDI):
+            os.makedirs(PATH_IDI)
+        
+        try:
+            mm = MultiModalityImage(mul_im)
+        except:
+            print('Cannot creatre MMI for', idi)
+            continue
+        SimpleITK.WriteImage( mm.label_mask_image,os.path.join(PATH_IDI,idi+'_labels.mhd'))
+        print('MM UP',idi)
+        mm.set_regions_feats()
+        print('Regions UP',idi)
+
+        for c,combo in enumerate(COMBOS):
+            print(len(COMBOS) - c, combo, idi)
+            name = os.path.join(PATH_IDI,'combo_'+str(c))
+            try:               
+                model = mm.mixture_map(SklearnModel(mixture.BayesianGaussianMixture(n_components = 7, max_iter=10000, n_init = 4,random_state=69)),
+                                   save_map = (ModalityImage.T1_VIVE_TRA_BH_FATSAT_EXPS_POSTCONT,name+'.mhd'), use_feats=combo)
+            except:
+                print('Improper model for',idi,'at combo', combo)
+                continue
+            model = model[1]
+            print('Model UP')
+            model.save_clf(name+'.pkl')
+            ps = model.skmodel.weight_concentration_
+            df.append({'subject':subject,'date':date, 'feats':c, 'iters':model.skmodel.n_iter_, 'lw':model.skmodel.lower_bound_, 'ps': 1 - np.sum(ps < 0.01) })
+        df2 = pd.DataFrame(df)
+        df2.to_csv(RES_PATH +'df_e.csv')
+    df3 = pd.DataFrame(df)
+    df3.to_csv(RES_PATH +'df_f_e.csv')
+  
+        
 #    #mm.density_label([8256,2,12,34,69])
 #    #a = mm.density_label([2932,444,274,267,265,3763,2762,272,263,17337], max_samples=100)
 #    #habitants = mm.density_label([20915,20917,20918,697,760,768,741,767,20526], max_samples=100)

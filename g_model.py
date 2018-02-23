@@ -7,7 +7,8 @@ Created on Fri Jan 19 10:30:24 2018
 """
 
 import theano
-
+from io import StringIO
+import sys
 
 import pymc3 as pm
 from pymc3 import Normal, Metropolis, sample, MvNormal, Dirichlet, \
@@ -24,6 +25,15 @@ from scipy import stats
 from utilities import indxs_neig,indxs_neigs
 
 import SimpleITK
+
+import sys
+import tempfile
+
+
+def file_lines(file_path):
+    with open(file_path) as f:
+        content = f.readlines()
+    return [x.strip() for x in content]
 
 rng = np.random.RandomState(123)
 
@@ -98,7 +108,7 @@ def run_normal_mv_model(data, K = 3, mus = None, mc_samples = 10000, jobs = 1):
        
     with pm.Model() as model:
         n_samples,n_feats = data.shape
-        print n_samples,n_feats
+        #print n_samples,n_feats
         packed_L = pm.LKJCholeskyCov('packed_L', n=n_feats, eta=2., sd_dist=pm.HalfCauchy.dist(2.5))        
         L = pm.expand_packed_triangular(n_feats, packed_L)
         sigma = pm.Deterministic('Sigma', L.dot(L.T))
@@ -208,7 +218,7 @@ def run_normal_mv_model_prior(data, K = 3, mus = None, mc_samples = 10000, jobs 
     n_samples,n_feats = data.shape
     n_samples = n_cols*n_rows
     max_neigs = 4*neigs*(neigs+1)
-    print max_neigs
+    #print max_neigs
     to_fill = indxs_neigs(range(n_samples), n_cols=n_cols, n_rows=n_rows, n = neigs)
     inds = np.where(to_fill != -1)[0]
     to_fill = to_fill[to_fill != -1]
@@ -278,7 +288,7 @@ def run_normal_mv_model_mixture(data, K = 3, mus = None, mc_samples = 10000, job
     n_samples,n_feats = data.shape
     n_samples = n_cols*n_rows
     max_neigs = 4*neigs*(neigs+1)
-    print max_neigs
+    #print max_neigs
     to_fill = indxs_neigs(range(n_samples), n_cols=n_cols, n_rows=n_rows, n = neigs)
     inds = np.where(to_fill != -1)[0]
     to_fill = to_fill[to_fill != -1]
@@ -330,7 +340,7 @@ def run_normal_mv_model_mixture(data, K = 3, mus = None, mc_samples = 10000, job
 def run_normal_mv_model_mixture_DIY(data, K = 3, mus = None, mc_samples = 10000, jobs = 1, n_cols = 10, n_rows = 100, neigs = 1):
     def logp_simple(mus,category, aux3):
         def logp_(value):
-            spatial_factor = 2
+            spatial_factor = 0.00
             aux = tt.ones((n_samples,)) 
             logps = tt.zeros((n_samples)) 
             sumlogps = tt.zeros((K,n_samples) ) 
@@ -351,7 +361,7 @@ def run_normal_mv_model_mixture_DIY(data, K = 3, mus = None, mc_samples = 10000,
     n_samples,n_feats = data.shape
     n_samples = n_cols*n_rows
     max_neigs = 4*neigs*(neigs+1)
-    print max_neigs
+    #print max_neigs
     to_fill = indxs_neigs(range(n_samples), n_cols=n_cols, n_rows=n_rows, n = neigs)
     inds = np.where(to_fill != -1)[0]
     to_fill = to_fill[to_fill != -1]
@@ -368,10 +378,10 @@ def run_normal_mv_model_mixture_DIY(data, K = 3, mus = None, mc_samples = 10000,
         
         mus = 0. if mus is None else mus
         
-        sds = pm.Uniform('sds',lower=1, upper=20, shape = shp)
-        mus = pm.Normal('mus', mu = mus_start/10. , sd = sds , shape=shp )
+        #sds = pm.Uniform('sds',lower=0., upper=150., shape = shp )
+        mus = pm.Normal('mus', mu = 100. , sd = 1, shape= shp )
              
-        pi = Dirichlet('pi', a = alpha, shape= (n_samples, K) )
+        pi = Dirichlet('pi', a = alpha, shape = (n_samples, K) )
 
         category = pm.Categorical('category', p=pi, shape = n_samples )
         shit_max = pm.Deterministic('shit_max',tt.max(category))
@@ -393,9 +403,144 @@ def run_normal_mv_model_mixture_DIY(data, K = 3, mus = None, mc_samples = 10000,
     mod = stats.mode(trace['category'][int(mc_samples*0.75):])
     return model, mod, trace
 
+class Ordered(pm.distributions.transforms.ElemwiseTransform):
+    name = "ordered"
+
+    def forward(self, x):
+        out = tt.zeros(x.shape)
+        out = tt.inc_subtensor(out[0], x[0])
+        out = tt.inc_subtensor(out[1:], tt.log(x[1:] - x[:-1]))
+        return out
+    
+    def forward_val(self, x, point=None):
+        x, = pm.distributions.distribution.draw_values([x], point=point)
+        return self.forward(x)
+
+    def backward(self, y):
+        out = tt.zeros(y.shape)
+        out = tt.inc_subtensor(out[0], y[0])
+        out = tt.inc_subtensor(out[1:], tt.exp(y[1:]))
+        return tt.cumsum(out)
+
+    def jacobian_det(self, y):
+        return tt.sum(y[1:])
+
+def run_One_d_Model(data, K = 3, mus = None, mc_samples = 10000, jobs = 1, n_cols = 10, n_rows = 100, neigs = 1):
+    def logp_simple(mus,category, aux3):
+     def logp_(value):
+         spatial_factor = 2
+         aux = tt.ones((n_samples,)) 
+         logps = tt.zeros((n_samples)) 
+         sumlogps = tt.zeros((K,n_samples) ) 
+         pi =  tt.sum(tt.eq( aux3,(aux*category).reshape((n_samples,1 )) ) , axis = 1)/8.0 
+         #TODO son logps y sumlops siempre sustituidos en todos lo valortes
+         for i,label in enumerate(range(K)):
+             pi_l =  tt.sum(tt.eq( aux3,(aux*label).reshape((n_samples,1 )) ) , axis = 1)/8.0 
+             sumlogps = tt.set_subtensor(sumlogps[i,:], (mus[label].logp(value)) + (pi_l - 1)*spatial_factor )
+         sumlogps = tt.sum(sumlogps, axis=0)
+        
+         for label in range(K):
+             indx = tt.eq(category,tt.as_tensor_variable(label)).nonzero()
+             logps = tt.set_subtensor(logps[indx], (mus[label].logp(value)[indx]) + (pi[indx] - 1)*spatial_factor - sumlogps[indx])
+         return logps
+     
+    n_samples,n_feats = data.shape
+    n_samples = n_cols*n_rows
+    max_neigs = 4*neigs*(neigs+1)
+    #print max_neigs
+    to_fill = indxs_neigs(range(n_samples), n_cols=n_cols, n_rows=n_rows, n = neigs)
+    inds = np.where(to_fill != -1)[0]
+    to_fill = to_fill[to_fill != -1]
+    aux = tt.ones(n_samples*max_neigs ) * -69 
+    shp  = (K, n_feats)
+    mus_start =  np.percentile(data,np.linspace(1,100,K), axis=0)
+    alpha = 0.1 * np.ones((n_samples, K))
+    
+    with pm.Model() as model:
+
+        mu = pm.Normal('mus', 100, mus_start, shape=K, testval = mus_start, transform=Ordered())
+        sd = pm.Uniform('sds',lower=0., upper=150., shape = K)
+        
+        #pi = Dirichlet('pi', a = alpha, shape= (n_samples, K) )
+        pi = Dirichlet('pi', a = alpha, shape = K )
+
+        category = pm.Categorical('category', p=pi, shape = n_samples )
+        shit_max = pm.Deterministic('shit_max',tt.max(category))
+        shit_min = pm.Deterministic('shit_min',tt.min(category))
+        x = pm.NormalMixture()
+
+class myNUTS(pm.NUTS):
+    
+    def astep(self, q0):
+        """Perform a single NUTS iteration."""
+        p0 = self.potential.random()
+        start = self.integrator.compute_state(q0, p0)
+        
+        if np.isinf(start.energy):
+            print('Go to f*** hell')
+            
+        if not np.isfinite(start.energy):
+            raise ValueError('Bad initial energy: %s. The model '
+                             'might be misspecified.' % start.energy)
+
+        if not self.adapt_step_size:
+            step_size = self.step_size
+        elif self.tune:
+            step_size = np.exp(self.log_step_size)
+        else:
+            step_size = np.exp(self.log_step_size_bar)
+
+        if self.tune and self.m < 200:
+            max_treedepth = self.early_max_treedepth
+        else:
+            max_treedepth = self.max_treedepth
+
+        tree = pm.NUTS._Tree(len(p0), self.integrator, start, step_size, self.Emax)
+        
+
+        for _ in range(max_treedepth):
+            direction = pm.NUTS.logbern(np.log(0.5)) * 2 - 1
+            diverging_info, turning = tree.extend(direction)
+            q, q_grad = tree.proposal.q, tree.proposal.q_grad
+
+            if diverging_info or turning:
+                if diverging_info:
+                    self.report._add_divergence(self.tune, *diverging_info)
+                break
+
+        w = 1. / (self.m + self.t0)
+        self.h_bar = ((1 - w) * self.h_bar +
+                      w * (self.target_accept - tree.accept_sum * 1. / tree.n_proposals))
+
+        if self.tune:
+            self.log_step_size = self.mu - self.h_bar * np.sqrt(self.m) / self.gamma
+            mk = self.m ** -self.k
+            self.log_step_size_bar = mk * self.log_step_size + (1 - mk) * self.log_step_size_bar
+
+        self.m += 1
+
+        if self.tune:
+            self.potential.adapt(q, q_grad)
+
+        stats = {
+            'step_size': step_size,
+            'tune': self.tune,
+            'step_size_bar': np.exp(self.log_step_size_bar),
+            'diverging': bool(diverging_info),
+        }
+
+        stats.update(tree.stats())
+
+        return q, [stats]
 
 
 if __name__ == "__main__":
+#    
+#    old_stdout = sys.stdout
+#    fp = tempfile.TemporaryFile()
+#    file_name = fp.name
+#    sys.stdout = open(file_name, 'w')
+    
     #data,C,n_samples,K, n_feats = make_random_latent_gaussian(plot= True, cov_mat = np.array([[0.1,0.001],[0.5,1.0]] ) )
     ms = [[-1,-1],[1,1],[-3,-3]]; priors = [0.3, 0.3, 0.4 ]; cov = np.array([[1,0.25],[0.25,1]])
     data,C,n_samples,K, n_feats = make_random_latent_gaussian(plot= False, centers= ms, priors=priors, cov_mat=cov , samples= 1000 )
@@ -406,20 +551,126 @@ if __name__ == "__main__":
     #data = np.concatenate([data_fake.T, data_fake2.T, data[:,-1:]], axis = 1)
     data, n_samples, K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune_min_n.jpg')
     #model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=5000, K=K)
-    #model,m, trace = run_normal_mv_model_prior(data[:,:-1], mc_samples=5000, K=K, n_cols = 40, n_rows = 30, neigs=1)
+    #model,m, trace = run_normal_mv_model_prior(data[:,:-1]class NUTS(BaseHMC):
+#   mc_samples=5000, K=K, n_cols = 40, n_rows = 30, neigs=1)
     #model,m, trace = run_normal_mv_model_mixture(data[:,:-1], mc_samples=5000, K=K, n_cols = 40, n_rows = 30, neigs=1)
-    model,m, trace = run_normal_mv_model_mixture_DIY(data[:,:-1]+1, mc_samples=30000, K=K, n_cols = 40, n_rows = 30, neigs=1)
+    #model,m, trace = run_normal_mv_model_mixture_DIY(data[:,:-1], mc_samples=1000, K=K, n_cols = 40, n_rows = 30, neigs=1)
     #model,m, trace = run_mv_model(data[:,:-1], K, n_feats=n_feats, mc_samples=50000)
     #model,m, trace = run_normal_mv_model(data[:,:-1], K=K, mc_samples=50000)
     #data,n_samples,K, n_feats = image_as_data('/home/pmacias/Projects/MRI-PET_Tuberculosis/Zhang/tune.jpg')
     #ks = np.array([4,0,1,2,3])#TODO No ojo
     #ks[trace['category'][-1]]
+     
+
+#    cmap = sns.cubehelix_palette(as_cmap=True)
+#    f, ax = plt.subplots()
+#    points = ax.scatter(data[:, 0], data[:, 1], c=m[1][0]/int(10000*0.75), s=(data[:,-1]+1)*20, cmap=cmap, alpha = 0.5)
+#    f.colorbar(points)
     
     
     
+
     
-    cmap = sns.cubehelix_palette(as_cmap=True)
-    f, ax = plt.subplots()
-    points = ax.scatter(data[:, 0], data[:, 1], c=m[1][0]/int(10000*0.75), s=(data[:,-1]+1)*20, cmap=cmap, alpha = 0.5)
-    f.colorbar(points)
+    
+    def logp_simple(mus,category, aux3):
+        def logp_(value):
+            spatial_factor = 0.0
+            aux = tt.ones((n_samples,)) 
+            logps = tt.zeros((n_samples)) 
+            sumlogps = tt.zeros((K,n_samples) ) 
+            pi =  tt.sum(tt.eq( aux3,(aux*category).reshape((n_samples,1 )) ) , axis = 1)/8.0 
+            #TODO son logps y sumlops siempre sustituidos en todos lo valortes
+            for i,label in enumerate(range(K)):
+                pi_l =  tt.sum(tt.eq( aux3,(aux*label).reshape((n_samples,1 )) ) , axis = 1)/8.0 
+                sumlogps = tt.set_subtensor(sumlogps[i,:], (mus[label].logp(value)) + (pi_l - 1)*spatial_factor )
+            sumlogps = tt.sum(sumlogps, axis=0)
+             
+            for label in range(K):
+                indx = tt.eq(category,tt.as_tensor_variable(label)).nonzero()
+                logps = tt.set_subtensor(logps[indx], (mus[label].logp(value)[indx]) + (pi[indx] - 1)*spatial_factor - sumlogps[indx]) 
+            
+            return logps
+        return logp_
+    
+
+    #K = 3
+    col = data[:,2]
+    data  = data[:,:-1]
+    n_cols = 40
+    n_rows = 30
+    neigs = 1
+    n_samples,n_feats = data.shape
+    n_samples = n_cols*n_rows
+    max_neigs = 4*neigs*(neigs+1)
+    #print max_neigs
+    to_fill = indxs_neigs(range(n_samples ), n_cols=n_cols, n_rows=n_rows, n = neigs)
+    inds = np.where(to_fill != -1)[0]
+    to_fill = to_fill[to_fill != -1]
+    
+    shp  = (K, n_feats)
+    mus_start =  np.percentile(data,np.linspace(1,100,K), axis=0)
+    alpha = 0.1 * np.ones(K)
+    O = np.ones(n_samples, dtype = np.int)
+    
+    with pm.Model() as model:
+        aux = tt.ones(n_samples*max_neigs ) * -69 
+        #packed_L = [pm.LKJCholeskyCov('packed_L_%d'% i, n=n_feats, eta=2., sd_dist=pm.HalfCauchy.dist(2.5) )  for i in range(K) ]     
+        #L = [pm.expand_packed_triangular(n_feats, packed_L[i]) for i in range(K) ]
+        #sigma = pm.Deterministic('Sigma', L.dot(L.T))
+        
+        #mus = 0. if mus is None else mus
+        
+        sds = pm.Uniform('sds',lower=1., upper=10., shape = shp )
+        mus = pm.HalfNormal('mus',  sd = sds, shape= shp )
+        mus_print = tt.printing.Print('mus')(mus)
+             
+        pis = pm.Dirichlet('pis', a = alpha, shape = (n_samples,K))
+#        pm.Potential('shit', tt.switch( tt.sum(pis) > 1.,-np.inf, 0. ) )
+#        pm.Potential('shit2', tt.switch( tt.sum(pis < 0.) > 0.,-np.inf, 0. ) )
+
+        category = pm.Categorical('category', p=pis, shape = n_samples )
+        
+        
+#    
+#        pm.Potential('shit_1', tt.switch( tt.sum( tt.eq(category, O*0 ) ) < 0.1,-np.inf, 0. ) )
+#        pm.Potential('shit_2', tt.switch( tt.sum( tt.eq(category, O*1 ) ) < 0.1,-np.inf, 0. ) )
+#        pm.Potential('shit_3', tt.switch( tt.sum( tt.eq(category, O*2 ) ) < 0.1,-np.inf, 0. ) )
+#        pm.Potential('shit_4', tt.switch( tt.sum( tt.eq(category, O*3 ) ) < 0.1,-np.inf, 0. ) )
+#        pm.Potential('shit_5', tt.switch( tt.sum( tt.eq(category, O*4 ) ) < 0.1,-np.inf, 0. ) )
+#        pm.Potential('shit_6', tt.switch( tt.sum(category > 4) > 0.,-np.inf, 0. ) )
+        shit_max = pm.Deterministic('shit_max',tt.max(category))
+        shit_min = pm.Deterministic('shit_min',tt.min(category))
+        
+        pis_print = tt.printing.Print('pis')(pis)
+        category_print = tt.printing.Print('category')(category)
+
+        #mvs = [MvNormal('mu_%d' % i, mu=mus[i],tau=pm.floatX(1. * np.eye(n_feats)),shape=(n_feats,)) for i in range(K)]
+        #mvs = [pm.MvNormal.dist(mu = mus[i], chol = L[i]) for i in range(K)]
+        mvs = [pm.MvNormal.dist(mu = mus[i], tau=np.eye(n_feats, dtype = np.float)  ) for i in range(K)]
+
+        aux2 = tt.set_subtensor(aux[inds],category[to_fill]) 
+        xs = DensityDist('x', logp_simple(mvs,category,aux2.reshape( (n_samples,max_neigs ) ) ), observed=data)
+ 
+
+        step2 = pm.ElemwiseCategorical(vars=[category], values=range(K) )
+        mystep = pm.Metropolis(vars = [ mus,sds] )
+        trace = sample(10000,start = pm.find_MAP(),step = [mystep,step2], tune = 3000, chains = 1, discard_tuned_samples=True, exception_verbosity='high')
+            
+    pm.traceplot(trace, varnames = ['mus','sds'])
+    #plt.title('logp_sum_mo_alpha_700_tunes_spatial_2map')
+    
+    m = stats.mode(trace['category'][int(1000*0.75):])
+    
+    #for RV in model.basic_RVs:
+    #    print(RV.name, RV.logp(model.test_point))
+        
+    #sys.stdout = old_stdout
+    #mulines = [s for s in file_lines(file_name) if 'mus' in s]
+    
+    #muvals = [line.split()[-1] for line in mulines]
+    #plt.plot(np.arange(0, len(muvals)), muvals)
+    #plt.xlabel('proposal iteration')
+    #plt.ylabel('mu value');
+
+
     
